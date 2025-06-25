@@ -1,0 +1,55 @@
+{
+    "name": "griptape-nodes-library-googleai",
+    "library_schema_version": "0.1.0",
+    "metadata": {
+        "author": "Griptape",
+        "description": "A Griptape Nodes library for interacting with Google AI services like Veo.",
+        "url": "www.griptape.ai",
+        "library_version": "0.1.0",
+        "engine_version": "0.39.0",
+        "tags": [
+            "Griptape",
+            "Google",
+            "AI",
+            "Veo",
+            "Video Generation"
+        ],
+        "dependencies": {
+            "pip_dependencies": [
+                "google-cloud-aiplatform",
+                "google-generativeai",
+                "google-cloud-storage"
+            ]
+        }
+    },
+    "categories": [
+        {
+            "GoogleAI": {
+                "color": "border-blue-500",
+                "title": "Google AI",
+                "description": "Nodes for Google AI services.",
+                "icon": "Video"
+            }
+        }
+    ],
+    "nodes": [
+        {
+            "class_name": "VeoVideoGenerator",
+            "file_path": "veo_video_generator.py",
+            "metadata": {
+                "category": "GoogleAI",
+                "description": "Generates videos using Google's Veo model.",
+                "display_name": "Veo Video Generator"
+            }
+        },
+        {
+            "class_name": "VideoDisplayNode",
+            "file_path": "video_display.py",
+            "metadata": {
+                "category": "Video",
+                "description": "Displays video players for a list of video URLs.",
+                "display_name": "Video Display"
+            }
+        }
+    ]
+}
