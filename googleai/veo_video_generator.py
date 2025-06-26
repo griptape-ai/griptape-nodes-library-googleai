@@ -31,8 +31,14 @@ class VeoVideoGenerator(DataNode):
         self.service_account_file_param = Parameter(
             name="service_account_file",
             type="str",
-            tooltip="Path to the Google Cloud service account JSON file.",
+            tooltip="Optional: Path to a Google Cloud service account JSON file. If empty, Application Default Credentials will be used.",
             ui_options={"clickable_file_browser": True},
+            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        )
+        self.project_id_param = Parameter(
+            name="project_id",
+            type="str",
+            tooltip="Google Cloud Project ID. Required if not using a service account file.",
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
         self.prompt_param = Parameter(
@@ -91,6 +97,7 @@ class VeoVideoGenerator(DataNode):
         
         # Add all defined parameters to the node
         self.add_parameter(self.service_account_file_param)
+        self.add_parameter(self.project_id_param)
         self.add_parameter(self.prompt_param)
         self.add_parameter(self.model_param)
         self.add_parameter(self.num_videos_param)
@@ -152,6 +159,7 @@ class VeoVideoGenerator(DataNode):
 
         # Get input values
         service_account_file = self.get_parameter_value(self.service_account_file_param.name)
+        user_project_id = self.get_parameter_value(self.project_id_param.name)
         prompt = self.get_parameter_value(self.prompt_param.name)
         model = self.get_parameter_value(self.model_param.name)
         num_videos = self.get_parameter_value(self.num_videos_param.name)
@@ -159,25 +167,36 @@ class VeoVideoGenerator(DataNode):
         location = self.get_parameter_value(self.location_param.name)
 
         # Validate inputs
-        if not service_account_file or not prompt:
-            self._log("ERROR: Service Account File and Prompt are required.")
+        if not prompt:
+            self._log("ERROR: Prompt is a required input.")
             return
 
         try:
-            self._log("Starting video generation process...")
-            project_id = self._get_project_id(service_account_file)
+            final_project_id = None
+            credentials = None
             
-            # Set the environment variable for Application Default Credentials
-            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_file
+            if service_account_file:
+                self._log("Using provided service account file for authentication.")
+                if not os.path.exists(service_account_file):
+                    raise FileNotFoundError(f"Service account file not found: {service_account_file}")
+                
+                # Set the environment variable for Application Default Credentials
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_file
+                final_project_id = self._get_project_id(service_account_file)
+                credentials = service_account.Credentials.from_service_account_file(service_account_file)
+            else:
+                self._log("Using Application Default Credentials (e.g., gcloud auth).")
+                if not user_project_id:
+                    self._log("ERROR: Project ID is required when not using a service account file.")
+                    return
+                final_project_id = user_project_id
 
-            credentials = service_account.Credentials.from_service_account_file(service_account_file)
-
-            self._log(f"Project ID: {project_id}")
+            self._log(f"Project ID: {final_project_id}")
             self._log("Initializing Vertex AI...")
-            aiplatform.init(project=project_id, location=location, credentials=credentials)
+            aiplatform.init(project=final_project_id, location=location, credentials=credentials)
             
             self._log("Initializing Generative AI Client...")
-            client = genai.Client(vertexai=True, project=project_id, location=location)
+            client = genai.Client(vertexai=True, project=final_project_id, location=location)
 
             self._log(f"🎬 Generating video for prompt: '{prompt}'")
             
@@ -219,7 +238,7 @@ class VeoVideoGenerator(DataNode):
                 # Fallback to downloading from GCS URI
                 elif hasattr(video.video, 'uri') and video.video.uri:
                     self._log(f"📹 Video {i+1} has GCS URI. Downloading...")
-                    video_bytes = self._download_from_gcs(video.video.uri, project_id, credentials)
+                    video_bytes = self._download_from_gcs(video.video.uri, final_project_id, credentials)
                 
                 if video_bytes:
                     filename = f"veo_video_{int(time.time())}_{i+1}.mp4"
@@ -241,6 +260,8 @@ class VeoVideoGenerator(DataNode):
             else:
                 self._log("\n❌ No videos were successfully saved.")
 
+        except FileNotFoundError as e:
+            self._log(f"❌ CONFIGURATION ERROR: {e}. Please check the path to your service account file.")
         except Exception as e:
             self._log(f"❌ An unexpected error occurred: {e}")
             import traceback

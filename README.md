@@ -9,11 +9,38 @@ This library provides Griptape Nodes for interacting with Google AI services, in
 
 ---
 
-## 1. Setup & Configuration
+## 1. Authentication
 
-To use this library, you first need to configure a Google Cloud project with the necessary permissions and credentials.
+This library supports two methods for authenticating with Google Cloud.
 
-### Step 1: Create a Service Account and Key
+### Method 1: Service Account File (Recommended for Servers)
+This is the most explicit and secure method for production or automated workflows.
+
+1.  **Create a Service Account and Key**: Follow the steps below to create a service account with the **Vertex AI User** role and download its JSON key file.
+2.  **Provide the Path**: In the `Veo Video Generator` node, provide the full, absolute path to this JSON file in the `service_account_file` parameter. The node will use this specific identity to authenticate.
+
+### Method 2: Application Default Credentials (Recommended for Local Development)
+This method is convenient for local development and testing, as it uses the credentials from your local `gcloud` CLI.
+
+1.  **Install the `gcloud` CLI**: If you haven't already, [install the Google Cloud CLI](https://cloud.google.com/sdk/docs/install).
+2.  **Log in**: Run the following command in your terminal. This will open a browser window for you to log in with your Google account.
+    ```bash
+    gcloud auth login
+    ```
+3.  **Set your project**: Configure the `gcloud` CLI to use your target project.
+    ```bash
+    gcloud config set project YOUR_PROJECT_ID
+    ```
+4.  **Use the Node**:
+    -   Leave the `service_account_file` parameter **empty**.
+    -   Fill in the `project_id` parameter with your Google Cloud Project ID.
+    -   The node will automatically detect and use your logged-in `gcloud` identity.
+
+---
+
+## 2. Setup & Configuration
+
+### Step 1: Create a Service Account and Key (for Method 1)
 
 1.  **Go to the Google Cloud Console**: Navigate to [IAM & Admin > Service Accounts](https://console.cloud.google.com/iam-admin/serviceaccounts).
 2.  **Select your project** from the dropdown at the top of the page.
@@ -36,12 +63,14 @@ You are now ready to use the nodes!
 
 ---
 
-## 2. Example Workflow
+## 3. Example Workflow
 
 Here is an example of how to connect the nodes to generate and display videos.
 
 1.  Add the `Veo Video Generator` node to your workflow.
-2.  In the `service_account_file` parameter, provide the **full path** to the JSON key file you downloaded in the setup steps.
+2.  **Choose your authentication method**:
+    -   Either provide the path to your `service_account_file` (leaving `project_id` blank).
+    -   Or leave `service_account_file` blank and provide your `project_id`.
 3.  Write a creative prompt.
 4.  Choose the number of videos to generate.
 5.  Add the `Video Display` node.
@@ -52,7 +81,7 @@ Here is an example of how to connect the nodes to generate and display videos.
 
 ---
 
-## 3. Nodes
+## 4. Nodes
 
 ### Veo Video Generator
 This node is the core of the library. It takes a service account file, a text prompt, and other configuration options to generate one or more videos using the Google Veo model via the Vertex AI API. It outputs a list of video artifacts.
