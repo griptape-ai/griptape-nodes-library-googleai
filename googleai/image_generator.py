@@ -1,16 +1,26 @@
-from typing import Any
+import os
+import time
+from typing import Any, ClassVar
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterGroup
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.traits.options import Options
+from griptape.artifacts import ImageArtifact, ImageUrlArtifact
+
+import json
+from rich.pretty import pprint
 
 try:
-    import vertexai 
-    from vertexai.preview.vision_models import ImageGenerationModel
-    VERTEXAI_INSTALLED = True
+    from google import genai
+    from google.oauth2 import service_account
+    from google.cloud import aiplatform, storage
+    from google.genai import types
+    GOOGLE_INSTALLED = True
 except ImportError:
-    VERTEXAI_INSTALLED = False
+    GOOGLE_INSTALLED = False
 
 class VertexAIImageGenerator(DataNode):
+    # Class-level cache for GCS clients
+    _gcs_client_cache: ClassVar[dict[str, Any]] = {}
 
     def __init__(self, name: str, metadata: dict | None = None) -> None:
         super().__init__(name, metadata)    
@@ -139,6 +149,31 @@ class VertexAIImageGenerator(DataNode):
         advanced_group.ui_options = {"hide": True}  # Hide the advanced group by default.
         self.add_node_element(advanced_group)
 
+        with ParameterGroup(name="GoogleConfig") as google_config_group:
+            Parameter(
+                name="google_cloud_region",
+                type="str",
+                tooltip="Optional. The region of the Google Cloud project.",
+                default_value="us-central1",
+            )
+
+            Parameter(
+                name="google_cloud_project_id",
+                type="str",
+                tooltip="Optional. The project ID of the Google Cloud project.",
+                default_value="",
+            )
+
+            Parameter(
+                name="google_service_account_file",
+                type="str",
+                tooltip="Optional. The service account file of the Google Cloud project.",
+                default_value="neo-for-griptape-nodes-6c8eedcd5825.json",
+            )
+
+        google_config_group.ui_options = {"hide": True}  # Hide the google config group by default.
+        self.add_node_element(google_config_group)
+
         self.add_parameter(
             Parameter(
                 name="image",
@@ -167,12 +202,153 @@ class VertexAIImageGenerator(DataNode):
         logs_group.ui_options = {"hide": True}  # Hide the logs group by default.
         self.add_node_element(logs_group)
 
+    def _log(self, message: str):
+        """Append a message to the logs output parameter."""
+        self.append_value_to_parameter("logs", message + "\n")
+
+    def _get_project_id(self, service_account_file: str) -> str:
+        """Read the project_id from the service account JSON file."""
+        if not os.path.exists(service_account_file):
+            raise FileNotFoundError(f"Service account file not found: {service_account_file}")
+        
+        with open(service_account_file, 'r') as f:
+            service_account_info = json.load(f)
+        
+        project_id = service_account_info.get('project_id')
+        if not project_id:
+            raise ValueError("No 'project_id' found in the service account file.")
+        
+        return project_id
+
+    def _get_gcs_client(self, project_id: str, credentials):
+        """Get a cached or new GCS client."""
+        if project_id in self._gcs_client_cache:
+            return self._gcs_client_cache[project_id]
+        else:
+            client = storage.Client(project=project_id, credentials=credentials)
+            self._gcs_client_cache[project_id] = client
+            return client
+
+    def _download_from_gcs(self, gcs_uri: str, project_id: str, credentials) -> bytes:
+        """Download video from GCS URI and return bytes."""
+        self._log(f"📥 Downloading from GCS URI: {gcs_uri}")
+        
+        if not gcs_uri.startswith('gs://'):
+            raise ValueError(f"Invalid GCS URI: {gcs_uri}")
+        
+        path_parts = gcs_uri[5:].split('/', 1)
+        bucket_name = path_parts[0]
+        blob_path = path_parts[1]
+        
+        storage_client = self._get_gcs_client(project_id, credentials)
+        
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(blob_path)
+        
+        return blob.download_as_bytes()
+
+    def _create_image_artifact(
+        self, image_bytes: bytes, output_format: str
+    ) -> ImageUrlArtifact:
+        """Create ImageUrlArtifact using StaticFilesManager for efficient storage."""
+        try:
+            # Generate unique filename with timestamp and hash
+            import hashlib
+
+            timestamp = int(time.time() * 1000)  # milliseconds for uniqueness
+            content_hash = hashlib.md5(image_bytes).hexdigest()[
+                :8
+            ]  # Short hash of content
+            file_extension = output_format.lower().split('/')[1]
+            filename = (
+                f"VertexAIImageGenerator_{timestamp}_{content_hash}.{file_extension}"
+            )
+
+            # Save to managed file location and get URL
+            static_url = GriptapeNodes.StaticFilesManager().save_static_file(
+                image_bytes, filename
+            )
+
+            return ImageUrlArtifact(value=static_url, name=f"text_to_image_{timestamp}")
+        except Exception as e:
+            raise ValueError(f"Failed to create image artifact: {str(e)}")
 
 
     def process(self) -> None:
-        self.append_value_to_parameter("logs", "Starting image generation...\n")
-        pass
+        if not GOOGLE_INSTALLED:
+            self.append_value_to_parameter("logs", "ERROR: Required libraries are not installed. Please add 'google' to your library's dependencies.")
+            return
+        
+        # Get input values
+        prompt = self.get_parameter_value("prompt")
+        model = self.get_parameter_value("model")
+        number_of_images = self.get_parameter_value("number_of_images")
+        seed = self.get_parameter_value("seed")
+        negative_prompt = self.get_parameter_value("negative_prompt")
+        aspect_ratio = self.get_parameter_value("aspect_ratio")
+        output_mime_type = self.get_parameter_value("output_mime_type")
+        language = self.get_parameter_value("language")
+        add_watermark = self.get_parameter_value("add_watermark")
+        google_cloud_region = self.get_parameter_value("google_cloud_region")
+        google_cloud_project_id = self.get_parameter_value("google_cloud_project_id")
+        google_service_account_file = self.get_parameter_value("google_service_account_file")
 
+        # Validate inputs
+        if not prompt:
+            self._log("ERROR: Prompt is a required input.")
+            return
+       
+        service_account_file = google_service_account_file
+
+        try:
+            final_project_id = None
+            credentials = None
+            
+            if service_account_file:
+                self._log("Using provided service account file for authentication.")
+                if not os.path.exists(service_account_file):
+                    raise FileNotFoundError(f"Service account file not found: {service_account_file}")
+                
+                # Set the environment variable for Application Default Credentials
+                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_file
+                final_project_id = self._get_project_id(service_account_file)
+                credentials = service_account.Credentials.from_service_account_file(service_account_file)
+            else:
+                self._log("Using Application Default Credentials (e.g., gcloud auth).")
+                if not google_cloud_project_id:
+                    self._log("ERROR: Project ID is required when not using a service account file.")
+                    return
+                final_project_id = google_cloud_project_id
+
+            self._log(f"Project ID: {final_project_id}")
+            self._log("Initializing Vertex AI...")
+            aiplatform.init(project=final_project_id, location=google_cloud_region, credentials=credentials)
+            
+            self._log("Initializing Generative AI Client...")
+            client = genai.Client(vertexai=True, project=final_project_id, location=google_cloud_region)
+
+            self._log("Starting image generation...\n")
+
+            image = client.models.generate_images(model=model, prompt=prompt)
+
+            self._log("✅ Image generation completed!")
+## works up to here. then i cannot get hold of the image bytes due to type issues...
+
+            print("Type of image.generated_images[0].image: ", type(image.generated_images[0].image))
+
+            generated_image = self._create_image_artifact(image.generated_images[0].image, output_mime_type)
+
+            self._log(f"Generated image: {image}")
+            
+            # Set the output parameter
+            self.set_parameter_value("image", generated_image)
+
+        except FileNotFoundError as e:
+            self._log(f"❌ CONFIGURATION ERROR: {e}. Please check the path to your service account file.")
+        except Exception as e:
+            self._log(f"❌ An unexpected error occurred: {e}")
+            import traceback
+            self._log(traceback.format_exc())
 
 
 
