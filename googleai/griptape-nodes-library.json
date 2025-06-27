@@ -30,9 +30,26 @@
                 "description": "Nodes for Google AI services.",
                 "icon": "Video"
             }
+        },
+        {
+            "image/googleai": {
+                "color": "border-purple-500",
+                "title": "Image/Google AI",
+                "description": "Nodes for Google AI services.",
+                "icon": "Image"
+            }
         }
     ],
     "nodes": [
+        {
+            "class_name": "VertexAIImageGenerator",
+            "file_path": "image_generator.py",
+            "metadata": {
+                "category": "image/googleai",
+                "description": "Generates images using Google's Imagen models.",
+                "display_name": "Imagen Image Generator"
+            }
+        },
         {
             "class_name": "VeoVideoGenerator",
             "file_path": "veo_video_generator.py",
