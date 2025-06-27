@@ -55,9 +55,11 @@ This method is convenient for local development and testing, as it uses the cred
 
 ### Step 2: Enable the Vertex AI API
 
-1.  **Go to the API Library**: Navigate to [APIs & Services > Library](https://console.cloud.google.com/apis/library).
-2.  Search for **Vertex AI API**.
-3.  Click on it and then click the **ENABLE** button if it is not already enabled for your project.
+1. **Return to the Google Cloud Console**
+2.  **Go to the API Library**: Navigate to [APIs & Services > Library](https://console.cloud.google.com/apis/library).
+3.  Select **+ Enable APIs and Services** at the top of the page.
+4.  Search for **Vertex AI API**.
+5.  Click on it and then click the **ENABLE** button if it is not already enabled for your project.
 
 You are now ready to use the nodes!
 
