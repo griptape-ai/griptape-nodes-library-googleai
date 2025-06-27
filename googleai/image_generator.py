@@ -5,6 +5,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, Parame
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.traits.options import Options
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 import json
 from rich.pretty import pprint
@@ -332,16 +333,33 @@ class VertexAIImageGenerator(DataNode):
             image = client.models.generate_images(model=model, prompt=prompt)
 
             self._log("✅ Image generation completed!")
-## works up to here. then i cannot get hold of the image bytes due to type issues...
 
-            print("Type of image.generated_images[0].image: ", type(image.generated_images[0].image))
-
-            generated_image = self._create_image_artifact(image.generated_images[0].image, output_mime_type)
-
-            self._log(f"Generated image: {image}")
-            
-            # Set the output parameter
-            self.set_parameter_value("image", generated_image)
+            # Process the generated images
+            if hasattr(image, 'generated_images') and image.generated_images:
+                self._log(f"Processing {len(image.generated_images)} generated image(s)...")
+                
+                # Process the first image
+                gen_image = image.generated_images[0]
+                if hasattr(gen_image, 'image'):
+                    img_obj = gen_image.image
+                    
+                    # Access image bytes using the working method
+                    if hasattr(img_obj, 'image_bytes'):
+                        image_bytes = img_obj.image_bytes
+                        self._log(f"✅ Retrieved image bytes: {len(image_bytes)} bytes")
+                        
+                        # Create the image artifact
+                        generated_image = self._create_image_artifact(image_bytes, output_mime_type)
+                        self._log(f"✅ Created image artifact: {generated_image}")
+                        
+                        # Set the output parameter
+                        self.set_parameter_value("image", generated_image)
+                    else:
+                        self._log("❌ Image object does not have image_bytes attribute")
+                else:
+                    self._log("❌ Generated image does not have 'image' attribute")
+            else:
+                self._log("❌ No generated images found in response")
 
         except FileNotFoundError as e:
             self._log(f"❌ CONFIGURATION ERROR: {e}. Please check the path to your service account file.")
