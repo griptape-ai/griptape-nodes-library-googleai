@@ -353,7 +353,7 @@ class VertexAIImageGenerator(DataNode):
                         self._log(f"✅ Created image artifact: {generated_image}")
                         
                         # Set the output parameter
-                        self.set_parameter_value("image", generated_image)
+                        self.parameter_output_values["image"] = generated_image
                     else:
                         self._log("❌ Image object does not have image_bytes attribute")
                 else:
