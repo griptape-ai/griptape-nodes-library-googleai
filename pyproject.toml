@@ -1,7 +1,7 @@
 [project]
-name = "example_nodes_template"
+name = "googleai"
 version = "0.1.0"
-description = "Template for Users to create Custom Libraries and Nodes"
+description = "Griptape Node Library for Google AI"
 authors = [
     {name = "Your Name",email = "you@example.com"}
 ]

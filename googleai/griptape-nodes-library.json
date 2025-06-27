@@ -1,5 +1,5 @@
 {
-    "name": "griptape-nodes-library-googleai",
+    "name": "Google AI Library",
     "library_schema_version": "0.1.0",
     "metadata": {
         "author": "Griptape",
@@ -24,20 +24,37 @@
     },
     "categories": [
         {
-            "GoogleAI": {
-                "color": "border-blue-500",
+            "video/googleai": {
+                "color": "border-pink-500",
                 "title": "Google AI",
                 "description": "Nodes for Google AI services.",
                 "icon": "Video"
+            }
+        },
+        {
+            "image/googleai": {
+                "color": "border-purple-500",
+                "title": "Image/Google AI",
+                "description": "Nodes for Google AI services.",
+                "icon": "Image"
             }
         }
     ],
     "nodes": [
         {
+            "class_name": "VertexAIImageGenerator",
+            "file_path": "image_generator.py",
+            "metadata": {
+                "category": "image/googleai",
+                "description": "Generates images using Google's Imagen models.",
+                "display_name": "Imagen Image Generator"
+            }
+        },
+        {
             "class_name": "VeoVideoGenerator",
             "file_path": "veo_video_generator.py",
             "metadata": {
-                "category": "GoogleAI",
+                "category": "video/googleai",
                 "description": "Generates videos using Google's Veo model.",
                 "display_name": "Veo Video Generator"
             }
@@ -46,7 +63,7 @@
             "class_name": "VideoDisplayNode",
             "file_path": "video_display.py",
             "metadata": {
-                "category": "Video",
+                "category": "video/googleai",
                 "description": "Displays video players for a list of video URLs.",
                 "display_name": "Video Display"
             }
