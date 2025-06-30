@@ -32,6 +32,7 @@ class VertexAIImageGenerator(DataNode):
                 type="str",
                 tooltip="Optional. The region of the Google Cloud project.",
                 default_value="us-central1",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
             )
 
             Parameter(
@@ -39,6 +40,7 @@ class VertexAIImageGenerator(DataNode):
                 type="str",
                 tooltip="Optional. The project ID of the Google Cloud project.",
                 default_value="",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
             )
 
             Parameter(
@@ -46,6 +48,7 @@ class VertexAIImageGenerator(DataNode):
                 type="str",
                 tooltip="Optional. The service account file of the Google Cloud project.",
                 default_value="neo-for-griptape-nodes-6c8eedcd5825.json",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
             )
 
         google_config_group.ui_options = {"hide": True}  # Hide the google config group by default.
