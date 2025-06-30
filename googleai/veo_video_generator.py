@@ -3,7 +3,7 @@ import time
 import json
 from typing import Any, ClassVar
 from griptape.artifacts import UrlArtifact, ListArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterGroup
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
@@ -28,19 +28,6 @@ class VeoVideoGenerator(DataNode):
         self.description = "Generates videos using Google's Veo model."
 
         # Input Parameters
-        self.service_account_file_param = Parameter(
-            name="service_account_file",
-            type="str",
-            tooltip="Optional: Path to a Google Cloud service account JSON file. If empty, Application Default Credentials will be used.",
-            ui_options={"clickable_file_browser": True},
-            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-        )
-        self.project_id_param = Parameter(
-            name="project_id",
-            type="str",
-            tooltip="Google Cloud Project ID. Required if not using a service account file.",
-            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-        )
         self.prompt_param = Parameter(
             name="prompt",
             type="str",
@@ -72,13 +59,35 @@ class VeoVideoGenerator(DataNode):
             traits=[Options(choices=["16:9", "9:16", "1:1"])],
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
-        self.location_param = Parameter(
-            name="location",
-            type="str",
-            tooltip="Google Cloud location for the generation job.",
-            default_value="us-central1",
-            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-        )
+
+        with ParameterGroup(name="GoogleConfig") as google_config_group:
+            Parameter(
+                name="location",
+                type="str",
+                tooltip="Optional. The region of the Google Cloud project.",
+                default_value="us-central1",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
+            )
+
+            Parameter(
+                name="project_id",
+                type="str",
+                tooltip="Optional. The project ID of the Google Cloud project.",
+                default_value="",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
+            )
+
+            Parameter(
+                name="service_account_file",
+                type="str",
+                tooltip="Optional. The service account file of the Google Cloud project.",
+                default_value="neo-for-griptape-nodes-6c8eedcd5825.json",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
+            )
+
+        google_config_group.ui_options = {"hide": True}  # Hide the google config group by default.
+        self.add_node_element(google_config_group)
+
 
         # Output Parameters
         self.video_artifacts_param = Parameter(
@@ -96,13 +105,10 @@ class VeoVideoGenerator(DataNode):
         )
         
         # Add all defined parameters to the node
-        self.add_parameter(self.service_account_file_param)
-        self.add_parameter(self.project_id_param)
         self.add_parameter(self.prompt_param)
         self.add_parameter(self.model_param)
         self.add_parameter(self.num_videos_param)
         self.add_parameter(self.aspect_ratio_param)
-        self.add_parameter(self.location_param)
         self.add_parameter(self.video_artifacts_param)
         self.add_parameter(self.logs_param)
 
@@ -158,13 +164,13 @@ class VeoVideoGenerator(DataNode):
             return
 
         # Get input values
-        service_account_file = self.get_parameter_value(self.service_account_file_param.name)
-        user_project_id = self.get_parameter_value(self.project_id_param.name)
-        prompt = self.get_parameter_value(self.prompt_param.name)
-        model = self.get_parameter_value(self.model_param.name)
-        num_videos = self.get_parameter_value(self.num_videos_param.name)
-        aspect_ratio = self.get_parameter_value(self.aspect_ratio_param.name)
-        location = self.get_parameter_value(self.location_param.name)
+        service_account_file = self.get_parameter_value("service_account_file")
+        user_project_id = self.get_parameter_value("project_id")
+        prompt = self.get_parameter_value("prompt_param")
+        model = self.get_parameter_value("model_param")
+        num_videos = self.get_parameter_value("num_videos_param")
+        aspect_ratio = self.get_parameter_value("aspect_ratio_param")
+        location = self.get_parameter_value("location")
 
         # Validate inputs
         if not prompt:
