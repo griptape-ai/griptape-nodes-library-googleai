@@ -101,6 +101,16 @@ class VertexAIImageGenerator(DataNode):
             )
         )
 
+        self.add_parameter(
+            Parameter(
+                name="enhance_prompt",
+                type="bool",
+                tooltip="Optional. Whether to use the prompt rewriting logic.",
+                default_value=True,
+                allowed_modes={ParameterMode.PROPERTY},
+            )
+        )
+
         with ParameterGroup(name="Advanced") as advanced_group:
 
             Parameter(
@@ -295,6 +305,7 @@ class VertexAIImageGenerator(DataNode):
         google_service_account_file = self.get_parameter_value("google_service_account_file")
         safety_filter_level = self.get_parameter_value("safety_filter_level")
         person_generation = self.get_parameter_value("person_generation")
+        enhance_prompt = self.get_parameter_value("enhance_prompt")
 
         # Validate inputs
         if not prompt:
@@ -345,6 +356,7 @@ class VertexAIImageGenerator(DataNode):
                     add_watermark=add_watermark,
                     safety_filter_level=safety_filter_level,
                     person_generation=person_generation,
+                    enhancePrompt=enhance_prompt
                 )
             )
 
