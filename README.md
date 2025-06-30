@@ -90,7 +90,7 @@ Here is an example of how to connect the nodes to generate and display videos.
     -   Or leave `service_account_file` blank and provide your `project_id`.
 3.  Write a creative prompt.
 4.  Optionally, select the model that you wish to use and set other configuration options.
-5.  Run the workflow! The generated image will appear in the node in just a seconds.
+5.  Run the workflow! The generated image will appear in the node in just a few seconds.
 
 ---
 
