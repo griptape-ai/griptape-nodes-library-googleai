@@ -28,6 +28,34 @@ class VeoVideoGenerator(DataNode):
         self.description = "Generates videos using Google's Veo model."
 
         # Input Parameters
+        with ParameterGroup(name="GoogleConfig") as google_config_group:
+            Parameter(
+                name="location",
+                type="str",
+                tooltip="Optional. The region of the Google Cloud project.",
+                default_value="us-central1",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
+            )
+
+            Parameter(
+                name="project_id",
+                type="str",
+                tooltip="Optional. The project ID of the Google Cloud project.",
+                default_value="",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
+            )
+
+            Parameter(
+                name="service_account_file",
+                type="str",
+                tooltip="Optional. The service account file of the Google Cloud project.",
+                default_value="neo-for-griptape-nodes-6c8eedcd5825.json",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
+            )
+
+        google_config_group.ui_options = {"hide": True}  # Hide the google config group by default.
+        self.add_node_element(google_config_group)
+
         self.prompt_param = Parameter(
             name="prompt",
             type="str",
@@ -59,35 +87,6 @@ class VeoVideoGenerator(DataNode):
             traits=[Options(choices=["16:9", "9:16", "1:1"])],
             allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
         )
-
-        with ParameterGroup(name="GoogleConfig") as google_config_group:
-            Parameter(
-                name="location",
-                type="str",
-                tooltip="Optional. The region of the Google Cloud project.",
-                default_value="us-central1",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
-            )
-
-            Parameter(
-                name="project_id",
-                type="str",
-                tooltip="Optional. The project ID of the Google Cloud project.",
-                default_value="",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
-            )
-
-            Parameter(
-                name="service_account_file",
-                type="str",
-                tooltip="Optional. The service account file of the Google Cloud project.",
-                default_value="neo-for-griptape-nodes-6c8eedcd5825.json",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
-            )
-
-        google_config_group.ui_options = {"hide": True}  # Hide the google config group by default.
-        self.add_node_element(google_config_group)
-
 
         # Output Parameters
         self.video_artifacts_param = Parameter(
