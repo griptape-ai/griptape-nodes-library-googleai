@@ -165,10 +165,10 @@ class VeoVideoGenerator(DataNode):
         # Get input values
         service_account_file = self.get_parameter_value("service_account_file")
         user_project_id = self.get_parameter_value("project_id")
-        prompt = self.get_parameter_value("prompt_param")
-        model = self.get_parameter_value("model_param")
-        num_videos = self.get_parameter_value("num_videos_param")
-        aspect_ratio = self.get_parameter_value("aspect_ratio_param")
+        prompt = self.get_parameter_value("prompt")
+        model = self.get_parameter_value("model")
+        num_videos = self.get_parameter_value("number_of_videos")
+        aspect_ratio = self.get_parameter_value("aspect_ratio")
         location = self.get_parameter_value("location")
 
         # Validate inputs
