@@ -293,6 +293,8 @@ class VertexAIImageGenerator(DataNode):
         google_cloud_region = self.get_parameter_value("google_cloud_region")
         google_cloud_project_id = self.get_parameter_value("google_cloud_project_id")
         google_service_account_file = self.get_parameter_value("google_service_account_file")
+        safety_filter_level = self.get_parameter_value("safety_filter_level")
+        person_generation = self.get_parameter_value("person_generation")
 
         # Validate inputs
         if not prompt:
@@ -330,7 +332,21 @@ class VertexAIImageGenerator(DataNode):
 
             self._log("Starting image generation...\n")
 
-            image = client.models.generate_images(model=model, prompt=prompt)
+            image = client.models.generate_images(
+                model=model, 
+                prompt=prompt,
+                config=types.GenerateImagesConfig(
+                    number_of_images= number_of_images,
+                    seed=seed,
+                    negative_prompt=negative_prompt,
+                    aspect_ratio=aspect_ratio,
+                    output_mime_type=output_mime_type,
+                    language=language,
+                    add_watermark=add_watermark,
+                    safety_filter_level=safety_filter_level,
+                    person_generation=person_generation,
+                )
+            )
 
             self._log("✅ Image generation completed!")
 
