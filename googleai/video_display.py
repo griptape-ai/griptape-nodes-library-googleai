@@ -29,7 +29,7 @@ class VideoDisplayNode(DataNode):
         # This node is for display purposes in the UI.
         pass
 
-    def after_value_set(self, parameter: Parameter, value: Any, modified_parameters_set: set[str]) -> None:
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """
         Reacts to the video_artifacts input being set, and dynamically creates
         video player parameters in the UI for each video in the list.
@@ -67,6 +67,5 @@ class VideoDisplayNode(DataNode):
                         self.add_parameter(video_param)
                         self.parameter_output_values[param_name] = artifact
                         self._dynamic_video_params.append(param_name)
-                        modified_parameters_set.add(param_name)
         
-        return super().after_value_set(parameter, value, modified_parameters_set) 
+        return super().after_value_set(parameter, value) 
