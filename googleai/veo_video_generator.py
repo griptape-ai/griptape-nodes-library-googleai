@@ -53,7 +53,7 @@ class VeoVideoGenerator(DataNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
             )
 
-        google_config_group.ui_options = {"hide": True}  # Hide the google config group by default.
+        google_config_group.ui_options = {"collapsed": True}  # Hide the google config group by default.
         self.add_node_element(google_config_group)
 
         self.prompt_param = Parameter(
