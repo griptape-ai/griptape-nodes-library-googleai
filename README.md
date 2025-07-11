@@ -6,6 +6,7 @@ This library provides Griptape Nodes for interacting with Google AI services, in
 
 - **Veo Video Generator**: Generate high-quality videos from text prompts using Google's state-of-the-art Veo model.
 - **Video Display**: A dynamic node that displays video players for generated videos directly in the Griptape Nodes UI.
+- **Image Generation**: Generate images from text using Google's Imagen text-to-image models.
 
 ---
 
@@ -65,12 +66,12 @@ You are now ready to use the nodes!
 
 ---
 
-## 3. Example Workflow
+## 3. Example Video Generation Workflow
 
 Here is an example of how to connect the nodes to generate and display videos.
 
 1.  Add the `Veo Video Generator` node to your workflow.
-2.  **Choose your authentication method**:
+2.  Expand the `GOOGLECONFIG` section at the top of the node and **Choose your authentication method**:
     -   Either provide the path to your `service_account_file` (leaving `project_id` blank).
     -   Or leave `service_account_file` blank and provide your `project_id`.
 3.  Write a creative prompt.
@@ -81,6 +82,16 @@ Here is an example of how to connect the nodes to generate and display videos.
 
 ![Example Veo Workflow](images/example_flow2.png)
 
+## 4. Example Image Generation Workflow
+
+1. Add the `Imagen Image Generator` node to your workflow
+2.  Expand the `GOOGLECONFIG` section at the top of the node and **Choose your authentication method**:
+    -   Either provide the path to your `service_account_file` (leaving `project_id` blank).
+    -   Or leave `service_account_file` blank and provide your `project_id`.
+3.  Write a creative prompt.
+4.  Optionally, select the model that you wish to use and set other configuration options.
+5.  Run the workflow! The generated image will appear in the node in just a few seconds.
+
 ---
 
 ## 4. Nodes
@@ -90,3 +101,6 @@ This node is the core of the library. It takes a service account file, a text pr
 
 ### Video Display
 A utility node designed to visualize the output of the video generator. It accepts a list of video artifacts and dynamically creates an interactive video player for each one directly in the node's UI, complete with output ports to pass individual videos to downstream nodes.
+
+## Imagen Image Generator
+Provides support for image generation with Google's Imagen family of text-to-image models. It takes a service account file, a text prompt, and other configuration options to generate an image using a Google Imagen model of your choice via the Vertex AI API. It outputs an image.

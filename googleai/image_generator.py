@@ -25,6 +25,34 @@ class VertexAIImageGenerator(DataNode):
 
     def __init__(self, name: str, metadata: dict | None = None) -> None:
         super().__init__(name, metadata)    
+
+        with ParameterGroup(name="GoogleConfig") as google_config_group:
+            Parameter(
+                name="google_cloud_region",
+                type="str",
+                tooltip="Optional. The region of the Google Cloud project.",
+                default_value="us-central1",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
+            )
+
+            Parameter(
+                name="google_cloud_project_id",
+                type="str",
+                tooltip="Optional. The project ID of the Google Cloud project.",
+                default_value="",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
+            )
+
+            Parameter(
+                name="google_service_account_file",
+                type="str",
+                tooltip="Optional. The service account file of the Google Cloud project.",
+                default_value="neo-for-griptape-nodes-6c8eedcd5825.json",
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
+            )
+
+        google_config_group.ui_options = {"collapsed": True}  # Hide the google config group by default.
+        self.add_node_element(google_config_group)
         
         self.add_parameter(
             Parameter(
@@ -101,6 +129,16 @@ class VertexAIImageGenerator(DataNode):
             )
         )
 
+        self.add_parameter(
+            Parameter(
+                name="enhance_prompt",
+                type="bool",
+                tooltip="Optional. Whether to use the prompt rewriting logic.",
+                default_value=True,
+                allowed_modes={ParameterMode.PROPERTY},
+            )
+        )
+
         with ParameterGroup(name="Advanced") as advanced_group:
 
             Parameter(
@@ -150,6 +188,7 @@ class VertexAIImageGenerator(DataNode):
         advanced_group.ui_options = {"collapsed": True}  # Hide the advanced group by default.
         self.add_node_element(advanced_group)
 
+<<<<<<< HEAD
         with ParameterGroup(name="GoogleConfig") as google_config_group:
             Parameter(
                 name="google_cloud_region",
@@ -174,6 +213,8 @@ class VertexAIImageGenerator(DataNode):
 
         google_config_group.ui_options = {"collapsed": True}  # Hide the google config group by default.
         self.add_node_element(google_config_group)
+=======
+>>>>>>> 7e539c2430157884c2c242a1853aec17f638a48e
 
         self.add_parameter(
             Parameter(
@@ -293,6 +334,9 @@ class VertexAIImageGenerator(DataNode):
         google_cloud_region = self.get_parameter_value("google_cloud_region")
         google_cloud_project_id = self.get_parameter_value("google_cloud_project_id")
         google_service_account_file = self.get_parameter_value("google_service_account_file")
+        safety_filter_level = self.get_parameter_value("safety_filter_level")
+        person_generation = self.get_parameter_value("person_generation")
+        enhance_prompt = self.get_parameter_value("enhance_prompt")
 
         # Validate inputs
         if not prompt:
@@ -330,7 +374,22 @@ class VertexAIImageGenerator(DataNode):
 
             self._log("Starting image generation...\n")
 
-            image = client.models.generate_images(model=model, prompt=prompt)
+            image = client.models.generate_images(
+                model=model, 
+                prompt=prompt,
+                config=types.GenerateImagesConfig(
+                    number_of_images= number_of_images,
+                    seed=seed,
+                    negative_prompt=negative_prompt,
+                    aspect_ratio=aspect_ratio,
+                    output_mime_type=output_mime_type,
+                    language=language,
+                    add_watermark=add_watermark,
+                    safety_filter_level=safety_filter_level,
+                    person_generation=person_generation,
+                    enhancePrompt=enhance_prompt
+                )
+            )
 
             self._log("✅ Image generation completed!")
 
