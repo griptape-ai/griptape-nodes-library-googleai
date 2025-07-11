@@ -4,60 +4,72 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
 from griptape_nodes.exe_types.node_types import DataNode
 
 
+class VideoUrlArtifact(UrlArtifact):
+    """
+    Artifact that contains a URL to a video.
+    """
+    def __init__(self, value: str, name: str | None = None):
+        super().__init__(value=value, name=name or self.__class__.__name__)
+
+
 class VideoDisplayNode(DataNode):
     """
     A node that dynamically displays video players in the UI for a list of video URL artifacts.
     """
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.category = "Google AI"
         self.description = "Displays video players for a list of video URLs."
 
         # Input parameter to accept the list of video artifacts
-        self.video_artifacts_param = Parameter(
-            name="video_artifacts",
-            type="list[UrlArtifact]",
-            tooltip="A list of UrlArtifacts pointing to videos to be displayed.",
+        self.add_parameter(
+            Parameter(
+                name="video_artifacts",
+                input_types=["list[VideoUrlArtifact]"],
+                type="list[VideoUrlArtifact]",
+                tooltip="A list of VideoUrlArtifacts pointing to videos to be displayed.",
+                allowed_modes={ParameterMode.INPUT},
+            )
         )
-        self.add_parameter(self.video_artifacts_param)
 
         # Internal state to keep track of dynamically created parameters
         self._dynamic_video_params: List[str] = []
 
     def process(self) -> None:
-        # The core logic is in after_value_set, so process can be empty.
-        # This node is for display purposes in the UI.
+        # The core logic is in after_value_set for dynamic UI updates
         pass
 
-    def after_value_set(self, parameter: Parameter, value: Any, modified_parameters_set: set[str]) -> None:
+    def after_value_set(self, parameter: Parameter, value: Any, modified_parameters_set: set[str] | None = None) -> None:
         """
         Reacts to the video_artifacts input being set, and dynamically creates
         video player parameters in the UI for each video in the list.
         """
-        if parameter.name == self.video_artifacts_param.name:
+        if parameter.name == "video_artifacts":
             # 1. Clear any existing dynamic video parameters
             for param_name in self._dynamic_video_params:
                 self.remove_parameter_element_by_name(param_name)
             self._dynamic_video_params.clear()
 
-            # 2. Process the new value
+            # 2. Process the new value - handle ListArtifact properly
             video_artifacts = []
-            if isinstance(value, (ListArtifact, list)):
-                value_list = value.value if isinstance(value, ListArtifact) else value
-                video_artifacts = value_list
+            if isinstance(value, ListArtifact):
+                video_artifacts = value.value
+            elif isinstance(value, list):
+                video_artifacts = value
 
             # 3. Create new parameters for each video artifact in the list
             if video_artifacts:
                 for i, artifact in enumerate(video_artifacts):
-                    if isinstance(artifact, UrlArtifact):
+                    if isinstance(artifact, (UrlArtifact, VideoUrlArtifact)):
                         param_name = f"video_display_{i}"
                         
                         video_param = Parameter(
                             name=param_name,
-                            type="VideoUrlArtifact",  # Correct type for UI rendering
-                            allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT}, # Display and Output
+                            type="VideoUrlArtifact",
+                            output_type="VideoUrlArtifact",
+                            allowed_modes={ParameterMode.PROPERTY, ParameterMode.OUTPUT},
                             default_value=artifact.value,
-                            tooltip=f"Video player for: {artifact.name}",
+                            tooltip=f"Video player for: {artifact.name or f'Video {i+1}'}",
                             ui_options={
                                 "display_name": f"Video {i+1}",
                                 "is_full_width": True,
@@ -67,6 +79,7 @@ class VideoDisplayNode(DataNode):
                         self.add_parameter(video_param)
                         self.parameter_output_values[param_name] = artifact
                         self._dynamic_video_params.append(param_name)
-                        modified_parameters_set.add(param_name)
+                        if modified_parameters_set is not None:
+                            modified_parameters_set.add(param_name)
         
-        return super().after_value_set(parameter, value, modified_parameters_set) 
+ 

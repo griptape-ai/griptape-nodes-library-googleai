@@ -1,8 +1,9 @@
 import os
 import time
 import json
+import requests
 from typing import Any, ClassVar
-from griptape.artifacts import UrlArtifact, ListArtifact
+from griptape.artifacts import UrlArtifact, ListArtifact, ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterGroup
 from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
@@ -13,7 +14,7 @@ try:
     from google.oauth2 import service_account
     from google.cloud import aiplatform, storage
     from google import genai
-    from google.genai.types import GenerateVideosConfig
+    from google.genai.types import GenerateVideosConfig, Image
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
@@ -26,22 +27,32 @@ class VideoUrlArtifact(UrlArtifact):
     def __init__(self, value: str, name: str | None = None):
         super().__init__(value=value, name=name or self.__class__.__name__)
 
-class VeoVideoGenerator(DataNode):
+class VeoImageToVideoGenerator(DataNode):
     # Class-level cache for GCS clients
     _gcs_client_cache: ClassVar[dict[str, Any]] = {}
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.category = "Google AI"
-        self.description = "Generates videos using Google's Veo model."
+        self.description = "Generates videos from an image input using Google's Veo model."
 
         # Main Parameters
         self.add_parameter(
             Parameter(
+                name="image",
+                input_types=["ImageArtifact", "ImageUrlArtifact"],
+                type="ImageArtifact",
+                tooltip="The input image for video generation.",
+                allowed_modes={ParameterMode.INPUT},
+            )
+        )
+
+        self.add_parameter(
+            Parameter(
                 name="prompt",
                 type="str",
-                tooltip="The text prompt for video generation.",
-                ui_options={"multiline": True, "placeholder_text": "Describe the video you want to generate"},
+                tooltip="Optional: The text prompt for video generation to guide the animation.",
+                ui_options={"multiline": True, "placeholder_text": "Optional text prompt to guide the animation"},
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
@@ -158,6 +169,60 @@ class VeoVideoGenerator(DataNode):
             self._gcs_client_cache[project_id] = client
             return client
 
+    def _upload_image_to_gcs(self, image_artifact, project_id: str, credentials) -> tuple[str, str]:
+        """Upload image to GCS and return the GCS URI and mime type."""
+        self._log("📤 Uploading image to GCS...")
+        
+        storage_client = self._get_gcs_client(project_id, credentials)
+        
+        # Create a bucket name (you might want to make this configurable)
+        bucket_name = f"{project_id}-veo-temp"
+        
+        try:
+            bucket = storage_client.bucket(bucket_name)
+            if not bucket.exists():
+                bucket = storage_client.create_bucket(bucket_name, location="us-central1")
+                self._log(f"Created bucket: {bucket_name}")
+        except Exception as e:
+            # If bucket creation fails, try to use an existing one
+            self._log(f"Using existing bucket: {bucket_name}")
+            bucket = storage_client.bucket(bucket_name)
+        
+        # Generate a unique filename
+        timestamp = int(time.time())
+        filename = f"veo_input_image_{timestamp}.png"
+        
+        blob = bucket.blob(filename)
+        
+        # Get image data based on artifact type
+        if isinstance(image_artifact, ImageUrlArtifact):
+            # Download image from URL
+            self._log(f"📥 Downloading image from URL: {image_artifact.value}")
+            response = requests.get(image_artifact.value)
+            response.raise_for_status()
+            image_data = response.content
+        elif isinstance(image_artifact, ImageArtifact):
+            # Handle ImageArtifact
+            if hasattr(image_artifact, 'value') and hasattr(image_artifact.value, 'read'):
+                # If it's a file-like object
+                image_data = image_artifact.value.read()
+            elif hasattr(image_artifact, 'base64'):
+                # If it's base64 encoded
+                import base64
+                image_data = base64.b64decode(image_artifact.base64)
+            else:
+                # Try to get the raw value
+                image_data = image_artifact.value
+        else:
+            raise ValueError(f"Unsupported image artifact type: {type(image_artifact)}")
+        
+        blob.upload_from_string(image_data, content_type="image/png")
+        
+        gcs_uri = f"gs://{bucket_name}/{filename}"
+        self._log(f"✅ Image uploaded to: {gcs_uri}")
+        
+        return gcs_uri, "image/png"
+
     def _download_from_gcs(self, gcs_uri: str, project_id: str, credentials) -> bytes:
         """Download video from GCS URI and return bytes."""
         self._log(f"📥 Downloading from GCS URI: {gcs_uri}")
@@ -184,6 +249,7 @@ class VeoVideoGenerator(DataNode):
         # Get input values
         service_account_file = self.get_parameter_value("service_account_file")
         user_project_id = self.get_parameter_value("project_id")
+        image_artifact = self.get_parameter_value("image")
         prompt = self.get_parameter_value("prompt")
         model = self.get_parameter_value("model")
         num_videos = self.get_parameter_value("number_of_videos")
@@ -191,8 +257,8 @@ class VeoVideoGenerator(DataNode):
         location = self.get_parameter_value("location")
 
         # Validate inputs
-        if not prompt:
-            self._log("ERROR: Prompt is a required input.")
+        if not image_artifact:
+            self._log("ERROR: Image is a required input.")
             return
 
         try:
@@ -222,16 +288,29 @@ class VeoVideoGenerator(DataNode):
             self._log("Initializing Generative AI Client...")
             client = genai.Client(vertexai=True, project=final_project_id, location=location)
 
-            self._log(f"🎬 Generating video for prompt: '{prompt}'")
+            # Upload image to GCS
+            gcs_uri, mime_type = self._upload_image_to_gcs(image_artifact, final_project_id, credentials)
+
+            self._log(f"🎬 Generating video from image with prompt: '{prompt or 'No prompt provided'}'")
             
-            operation = client.models.generate_videos(
-                model=model,
-                prompt=prompt,
-                config=GenerateVideosConfig(
+            # Build the API call parameters
+            api_params = {
+                "model": model,
+                "image": Image(
+                    gcs_uri=gcs_uri,
+                    mime_type=mime_type,
+                ),
+                "config": GenerateVideosConfig(
                     aspect_ratio=aspect_ratio,
                     number_of_videos=num_videos,
                 ),
-            )
+            }
+            
+            # Add prompt if provided
+            if prompt:
+                api_params["prompt"] = prompt
+            
+            operation = client.models.generate_videos(**api_params)
 
             self._log("⏳ Operation started! Waiting for completion...")
             while not operation.done:
@@ -241,11 +320,18 @@ class VeoVideoGenerator(DataNode):
 
             self._log("✅ Video generation completed!")
             
+            # Check for errors first
             if hasattr(operation, 'error') and operation.error:
-                self._log(f"❌ Operation has error: {operation.error}")
-                return
+                error_details = operation.error
+                self._log(f"❌ Video generation failed with error: {error_details}")
                 
-            if not operation.response:
+                # Provide user-friendly error explanation
+                if isinstance(error_details, dict) and error_details.get('code') == 13:
+                    self._log("🔄 This is a temporary Google API internal error. Please try again in a few minutes.")
+                    self._log("💡 Tip: You can also try changing the location parameter to a different region (e.g., 'us-east1').")
+                return
+            
+            if not hasattr(operation, 'response') or not operation.response:
                 self._log("❌ Video generation completed but no response found.")
                 return
 
@@ -284,7 +370,7 @@ class VeoVideoGenerator(DataNode):
                     video_bytes = self._download_from_gcs(video.video.uri, final_project_id, credentials)
                 
                 if video_bytes:
-                    filename = f"veo_video_{int(time.time())}_{i+1}.mp4"
+                    filename = f"veo_image_to_video_{int(time.time())}_{i+1}.mp4"
                     self._log(f"Saving video bytes to static storage as {filename}...")
                     
                     static_files_manager = GriptapeNodes.StaticFilesManager()

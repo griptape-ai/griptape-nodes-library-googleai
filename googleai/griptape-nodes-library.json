@@ -18,7 +18,8 @@
             "pip_dependencies": [
                 "google-cloud-aiplatform",
                 "google-generativeai",
-                "google-cloud-storage"
+                "google-cloud-storage",
+                "requests"
             ]
         }
     },
@@ -55,8 +56,17 @@
             "file_path": "veo_video_generator.py",
             "metadata": {
                 "category": "video/googleai",
-                "description": "Generates videos using Google's Veo model.",
-                "display_name": "Veo Video Generator"
+                "description": "Generates videos from text prompts using Google's Veo model.",
+                "display_name": "Veo Text-To-Video"
+            }
+        },
+        {
+            "class_name": "VeoImageToVideoGenerator",
+            "file_path": "veo_image_to_video_generator.py",
+            "metadata": {
+                "category": "video/googleai",
+                "description": "Generates videos from an image input using Google's Veo model.",
+                "display_name": "Veo Image-To-Video"
             }
         },
         {

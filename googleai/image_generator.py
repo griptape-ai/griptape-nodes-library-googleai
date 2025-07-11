@@ -147,7 +147,7 @@ class VertexAIImageGenerator(DataNode):
                 allowed_modes={ParameterMode.PROPERTY},
             )
 
-        advanced_group.ui_options = {"hide": True}  # Hide the advanced group by default.
+        advanced_group.ui_options = {"collapsed": True}  # Hide the advanced group by default.
         self.add_node_element(advanced_group)
 
         with ParameterGroup(name="GoogleConfig") as google_config_group:
@@ -172,7 +172,7 @@ class VertexAIImageGenerator(DataNode):
                 default_value="neo-for-griptape-nodes-6c8eedcd5825.json",
             )
 
-        google_config_group.ui_options = {"hide": True}  # Hide the google config group by default.
+        google_config_group.ui_options = {"collapsed": True}  # Hide the google config group by default.
         self.add_node_element(google_config_group)
 
         self.add_parameter(
@@ -353,7 +353,7 @@ class VertexAIImageGenerator(DataNode):
                         self._log(f"✅ Created image artifact: {generated_image}")
                         
                         # Set the output parameter
-                        self.set_parameter_value("image", generated_image)
+                        self.parameter_output_values["image"] = generated_image
                     else:
                         self._log("❌ Image object does not have image_bytes attribute")
                 else:
