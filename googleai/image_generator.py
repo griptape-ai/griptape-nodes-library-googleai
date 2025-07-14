@@ -23,8 +23,8 @@ class VertexAIImageGenerator(DataNode):
     # Class-level cache for GCS clients
     _gcs_client_cache: ClassVar[dict[str, Any]] = {}
 
-    def __init__(self, name: str, metadata: dict | None = None) -> None:
-        super().__init__(name, metadata)    
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)    
 
         with ParameterGroup(name="GoogleConfig") as google_config_group:
             Parameter(
@@ -188,33 +188,7 @@ class VertexAIImageGenerator(DataNode):
         advanced_group.ui_options = {"collapsed": True}  # Hide the advanced group by default.
         self.add_node_element(advanced_group)
 
-<<<<<<< HEAD
-        with ParameterGroup(name="GoogleConfig") as google_config_group:
-            Parameter(
-                name="google_cloud_region",
-                type="str",
-                tooltip="Optional. The region of the Google Cloud project.",
-                default_value="us-central1",
-            )
 
-            Parameter(
-                name="google_cloud_project_id",
-                type="str",
-                tooltip="Optional. The project ID of the Google Cloud project.",
-                default_value="",
-            )
-
-            Parameter(
-                name="google_service_account_file",
-                type="str",
-                tooltip="Optional. The service account file of the Google Cloud project.",
-                default_value="neo-for-griptape-nodes-6c8eedcd5825.json",
-            )
-
-        google_config_group.ui_options = {"collapsed": True}  # Hide the google config group by default.
-        self.add_node_element(google_config_group)
-=======
->>>>>>> 7e539c2430157884c2c242a1853aec17f638a48e
 
         self.add_parameter(
             Parameter(

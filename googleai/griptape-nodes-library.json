@@ -19,7 +19,8 @@
                 "google-cloud-aiplatform",
                 "google-generativeai",
                 "google-cloud-storage",
-                "requests"
+                "requests",
+                "opencv-python"
             ]
         }
     },
@@ -73,9 +74,20 @@
             "class_name": "VideoDisplayNode",
             "file_path": "video_display.py",
             "metadata": {
-                "category": "video/googleai",
+                "category": "video",
                 "description": "Displays video players for a list of video URLs.",
-                "display_name": "Video Display"
+                "display_name": "Display Video (Multi)",
+                "group": "general"
+            }
+        },
+        {
+            "class_name": "LastFrameExtractor",
+            "file_path": "last_frame.py",
+            "metadata": {
+                "category": "video",
+                "description": "Extracts the last frame from a video and outputs it as an image.",
+                "display_name": "Last Frame Extractor",
+                "group": "tasks"
             }
         }
     ]
