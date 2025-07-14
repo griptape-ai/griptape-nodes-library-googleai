@@ -45,7 +45,7 @@
     "nodes": [
         {
             "class_name": "VertexAIImageGenerator",
-            "file_path": "image_generator.py",
+            "file_path": "imagen_image_generator.py",
             "metadata": {
                 "category": "image/googleai",
                 "description": "Generates images using Google's Imagen models.",
@@ -72,7 +72,7 @@
         },
         {
             "class_name": "VideoDisplayNode",
-            "file_path": "video_display.py",
+            "file_path": "multi_video_display.py",
             "metadata": {
                 "category": "video",
                 "description": "Displays video players for a list of video URLs.",
