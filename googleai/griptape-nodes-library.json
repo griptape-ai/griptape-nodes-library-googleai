@@ -1,12 +1,23 @@
 {
     "name": "Google AI Library",
     "library_schema_version": "0.1.0",
+    "settings": [
+        {
+            "description": "Google Cloud authentication settings for AI services",
+            "category": "nodes.GoogleAI",
+            "contents": {
+                "GOOGLE_SERVICE_ACCOUNT_FILE_PATH": "$GOOGLE_SERVICE_ACCOUNT_FILE_PATH",
+                "GOOGLE_CLOUD_PROJECT_ID": "$GOOGLE_CLOUD_PROJECT_ID",
+                "GOOGLE_APPLICATION_CREDENTIALS_JSON": "$GOOGLE_APPLICATION_CREDENTIALS_JSON"
+            }
+        }
+    ],
     "metadata": {
         "author": "Griptape",
         "description": "A Griptape Nodes library for interacting with Google AI services like Veo.",
         "url": "www.griptape.ai",
         "library_version": "0.1.0",
-        "engine_version": "0.39.0",
+        "engine_version": "0.44.0",
         "tags": [
             "Griptape",
             "Google",
@@ -19,8 +30,7 @@
                 "google-cloud-aiplatform",
                 "google-generativeai",
                 "google-cloud-storage",
-                "requests",
-                "opencv-python"
+                "requests"
             ]
         }
     },
@@ -78,16 +88,6 @@
                 "description": "Displays video players for a list of video URLs.",
                 "display_name": "Display Video (Multi)",
                 "group": "general"
-            }
-        },
-        {
-            "class_name": "LastFrameExtractor",
-            "file_path": "last_frame.py",
-            "metadata": {
-                "category": "video",
-                "description": "Extracts the last frame from a video and outputs it as an image.",
-                "display_name": "Last Frame Extractor",
-                "group": "tasks"
             }
         }
     ]

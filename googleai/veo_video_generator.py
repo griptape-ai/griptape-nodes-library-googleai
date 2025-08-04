@@ -4,7 +4,7 @@ import json
 from typing import Any, ClassVar
 from griptape.artifacts import UrlArtifact, ListArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterGroup
-from griptape_nodes.exe_types.node_types import DataNode
+from griptape_nodes.exe_types.node_types import ControlNode, AsyncResult
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
@@ -25,10 +25,18 @@ class VideoUrlArtifact(UrlArtifact):
     """
     def __init__(self, value: str, name: str | None = None):
         super().__init__(value=value, name=name or self.__class__.__name__)
+        self.mime_type = "video/mp4"
+        self.media_type = "video"
 
-class VeoVideoGenerator(DataNode):
+class VeoVideoGenerator(ControlNode):
     # Class-level cache for GCS clients
     _gcs_client_cache: ClassVar[dict[str, Any]] = {}
+    
+    # Service constants for configuration
+    SERVICE = "GoogleAI"
+    SERVICE_ACCOUNT_FILE_PATH = "GOOGLE_SERVICE_ACCOUNT_FILE_PATH"
+    PROJECT_ID = "GOOGLE_CLOUD_PROJECT_ID"
+    CREDENTIALS_JSON = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -51,8 +59,13 @@ class VeoVideoGenerator(DataNode):
                 name="model",
                 type="str",
                 tooltip="The Veo model to use for generation.",
-                default_value="veo-3.0-generate-preview",
-                traits=[Options(choices=["veo-3.0-generate-preview"])],
+                default_value="veo-3.0-generate-001",
+                traits=[Options(choices=[
+                    "veo-3.0-generate-001",
+                    "veo-3.0-fast-generate-001", 
+                    "veo-3.0-generate-preview",
+                    "veo-3.0-fast-generate-preview"
+                ])],
                 allowed_modes={ParameterMode.PROPERTY},
             )
         )
@@ -61,9 +74,9 @@ class VeoVideoGenerator(DataNode):
             Parameter(
                 name="number_of_videos",
                 type="int",
-                tooltip="Number of videos to generate.",
+                tooltip="Number of videos to generate (sampleCount).",
                 default_value=1,
-                traits=[Options(choices=[1, 2])],
+                traits=[Options(choices=[1, 2, 3, 4])],
                 allowed_modes={ParameterMode.PROPERTY},
             )
         )
@@ -72,50 +85,53 @@ class VeoVideoGenerator(DataNode):
             Parameter(
                 name="aspect_ratio",
                 type="str",
-                tooltip="Aspect ratio of the generated video.",
+                tooltip="Aspect ratio of the generated video. Note: 9:16 is not supported by veo-3.0-generate-preview.",
                 default_value="16:9",
-                traits=[Options(choices=["16:9", "9:16", "1:1"])],
+                traits=[Options(choices=["16:9", "9:16"])],
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
 
-        # Google Config Group
-        with ParameterGroup(name="GoogleConfig") as google_config_group:
+        self.add_parameter(
             Parameter(
-                name="service_account_file",
+                name="resolution",
                 type="str",
-                tooltip="Optional: Path to a Google Cloud service account JSON file. If empty, Application Default Credentials will be used.",
-                ui_options={"clickable_file_browser": True},
+                tooltip="Resolution of the generated video.",
+                default_value="720p",
+                traits=[Options(choices=["720p", "1080p"])],
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
+        )
 
-            Parameter(
-                name="project_id",
-                type="str",
-                tooltip="Google Cloud Project ID. Required if not using a service account file.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            )
-
+        self.add_parameter(
             Parameter(
                 name="location",
                 type="str",
                 tooltip="Google Cloud location for the generation job.",
                 default_value="us-central1",
+                traits=[Options(choices=[
+                    "us-central1",
+                    "us-east1", 
+                    "us-west1",
+                    "europe-west1",
+                    "europe-west4",
+                    "asia-east1"
+                ])],
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
-
-        google_config_group.ui_options = {"collapsed": True}
-        self.add_node_element(google_config_group)
-
-        # Output Parameters
-        self.add_parameter(
-            Parameter(
-                name="video_artifacts",
-                type="list[VideoUrlArtifact]",
-                tooltip="List of generated video artifacts.",
-                allowed_modes={ParameterMode.OUTPUT},
-            )
         )
+
+        # Output Parameters using your EXACT grid specification
+        grid_param = Parameter(
+            name="video_artifacts",
+            type="list",
+            default_value=[],
+            output_type="list[VideoUrlArtifact]",
+            tooltip="Generated video artifacts (up to 4 videos)",
+            ui_options={"display": "grid", "grid_columns": 2},
+            allowed_modes={ParameterMode.OUTPUT},
+        )
+        self.add_parameter(grid_param)
 
         # Logs Group
         with ParameterGroup(name="Logs") as logs_group:
@@ -176,64 +192,10 @@ class VeoVideoGenerator(DataNode):
         
         return blob.download_as_bytes()
 
-    def process(self) -> None:
-        if not GOOGLE_INSTALLED:
-            self._log("ERROR: Required Google libraries are not installed. Please add 'google-cloud-aiplatform', 'google-generativeai', 'google-cloud-storage' to your library's dependencies.")
-            return
-
-        # Get input values
-        service_account_file = self.get_parameter_value("service_account_file")
-        user_project_id = self.get_parameter_value("project_id")
-        prompt = self.get_parameter_value("prompt")
-        model = self.get_parameter_value("model")
-        num_videos = self.get_parameter_value("number_of_videos")
-        aspect_ratio = self.get_parameter_value("aspect_ratio")
-        location = self.get_parameter_value("location")
-
-        # Validate inputs
-        if not prompt:
-            self._log("ERROR: Prompt is a required input.")
-            return
-
+    def _poll_and_process_video_result(self, client, operation, final_project_id, credentials) -> None:
+        """Poll for video generation completion and process results - called via yield."""
         try:
-            final_project_id = None
-            credentials = None
-            
-            if service_account_file:
-                self._log("Using provided service account file for authentication.")
-                if not os.path.exists(service_account_file):
-                    raise FileNotFoundError(f"Service account file not found: {service_account_file}")
-                
-                # Set the environment variable for Application Default Credentials
-                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_file
-                final_project_id = self._get_project_id(service_account_file)
-                credentials = service_account.Credentials.from_service_account_file(service_account_file)
-            else:
-                self._log("Using Application Default Credentials (e.g., gcloud auth).")
-                if not user_project_id:
-                    self._log("ERROR: Project ID is required when not using a service account file.")
-                    return
-                final_project_id = user_project_id
-
-            self._log(f"Project ID: {final_project_id}")
-            self._log("Initializing Vertex AI...")
-            aiplatform.init(project=final_project_id, location=location, credentials=credentials)
-            
-            self._log("Initializing Generative AI Client...")
-            client = genai.Client(vertexai=True, project=final_project_id, location=location)
-
-            self._log(f"🎬 Generating video for prompt: '{prompt}'")
-            
-            operation = client.models.generate_videos(
-                model=model,
-                prompt=prompt,
-                config=GenerateVideosConfig(
-                    aspect_ratio=aspect_ratio,
-                    number_of_videos=num_videos,
-                ),
-            )
-
-            self._log("⏳ Operation started! Waiting for completion...")
+            # Poll for completion
             while not operation.done:
                 time.sleep(15)
                 operation = client.operations.get(operation)
@@ -297,14 +259,110 @@ class VeoVideoGenerator(DataNode):
                     self._log(f"❌ Could not retrieve video data for video {i+1}.")
 
             if video_artifacts:
-                output_artifact = ListArtifact(video_artifacts)
-                self.parameter_output_values["video_artifacts"] = output_artifact
+                # Set the entire list of videos at once for ParameterList
+                self.parameter_output_values["video_artifacts"] = video_artifacts
                 self._log("\n🎉 SUCCESS! All videos processed.")
             else:
                 self._log("\n❌ No videos were successfully saved.")
+        except Exception as e:
+            self._log(f"❌ An unexpected error occurred during polling: {e}")
+            import traceback
+            self._log(traceback.format_exc())
+            raise
 
-        except FileNotFoundError as e:
-            self._log(f"❌ CONFIGURATION ERROR: {e}. Please check the path to your service account file.")
+    def process(self) -> AsyncResult:
+        if not GOOGLE_INSTALLED:
+            self._log("ERROR: Required Google libraries are not installed. Please add 'google-cloud-aiplatform', 'google-generativeai', 'google-cloud-storage' to your library's dependencies.")
+            return
+            yield  # unreachable but makes the function a generator
+
+        # Get input values
+        prompt = self.get_parameter_value("prompt")
+        model = self.get_parameter_value("model")
+        num_videos = self.get_parameter_value("number_of_videos")
+        aspect_ratio = self.get_parameter_value("aspect_ratio")
+        resolution = self.get_parameter_value("resolution")
+        location = self.get_parameter_value("location")
+
+        # Validate inputs
+        if not prompt:
+            self._log("ERROR: Prompt is a required input.")
+            return
+            
+        # Validate aspect ratio for specific models
+        if model == "veo-3.0-generate-preview" and aspect_ratio == "9:16":
+            self._log("ERROR: 9:16 aspect ratio is not supported by veo-3.0-generate-preview model.")
+            return
+
+        try:
+            final_project_id = None
+            credentials = None
+            
+            # Try service account file first
+            service_account_file = self.get_config_value(service=self.SERVICE, value=self.SERVICE_ACCOUNT_FILE_PATH)
+            
+            if service_account_file and os.path.exists(service_account_file):
+                self._log("🔑 Using service account file for authentication.")
+                try:
+                    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_file
+                    final_project_id = self._get_project_id(service_account_file)
+                    credentials = service_account.Credentials.from_service_account_file(service_account_file)
+                    self._log(f"✅ Service account authentication successful for project: {final_project_id}")
+                except Exception as e:
+                    self._log(f"❌ Service account file authentication failed: {e}")
+                    raise
+            else:
+                # Fall back to individual credentials from settings
+                self._log("🔑 Service account file not found, using individual credentials from settings.")
+                project_id = self.get_config_value(service=self.SERVICE, value=self.PROJECT_ID)
+                credentials_json = self.get_config_value(service=self.SERVICE, value=self.CREDENTIALS_JSON)
+                
+                if not project_id:
+                    raise ValueError("❌ GOOGLE_CLOUD_PROJECT_ID must be set in library settings when not using a service account file.")
+                
+                if credentials_json:
+                    try:
+                        import json
+                        cred_dict = json.loads(credentials_json)
+                        credentials = service_account.Credentials.from_service_account_info(cred_dict)
+                        self._log("✅ JSON credentials authentication successful.")
+                    except Exception as e:
+                        self._log(f"❌ JSON credentials authentication failed: {e}")
+                        raise
+                else:
+                    self._log("🔑 Using Application Default Credentials (e.g., gcloud auth).")
+                
+                final_project_id = project_id
+
+            self._log(f"Project ID: {final_project_id}")
+            self._log("Initializing Vertex AI...")
+            aiplatform.init(project=final_project_id, location=location, credentials=credentials)
+            
+            self._log("Initializing Generative AI Client...")
+            client = genai.Client(vertexai=True, project=final_project_id, location=location)
+
+            self._log(f"🎬 Generating video for prompt: '{prompt}'")
+            
+            operation = client.models.generate_videos(
+                model=model,
+                prompt=prompt,
+                config=GenerateVideosConfig(
+                    aspect_ratio=aspect_ratio,
+                    resolution=resolution,
+                    number_of_videos=num_videos,
+                ),
+            )
+
+            self._log("⏳ Operation started! Waiting for completion...")
+            
+            # Use yield pattern for non-blocking execution
+            yield lambda: self._poll_and_process_video_result(client, operation, final_project_id, credentials)
+
+        except ValueError as e:
+            self._log(f"❌ CONFIGURATION ERROR: {e}")
+            self._log("💡 Please set up Google Cloud credentials in the library settings:")
+            self._log("   - GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
+            self._log("   - OR GOOGLE_CLOUD_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON")
         except Exception as e:
             self._log(f"❌ An unexpected error occurred: {e}")
             import traceback

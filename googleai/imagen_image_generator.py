@@ -2,7 +2,7 @@ import os
 import time
 from typing import Any, ClassVar
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterGroup
-from griptape_nodes.exe_types.node_types import DataNode
+from griptape_nodes.exe_types.node_types import ControlNode, AsyncResult
 from griptape_nodes.traits.options import Options
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
@@ -19,40 +19,36 @@ try:
 except ImportError:
     GOOGLE_INSTALLED = False
 
-class VertexAIImageGenerator(DataNode):
+class VertexAIImageGenerator(ControlNode):
     # Class-level cache for GCS clients
     _gcs_client_cache: ClassVar[dict[str, Any]] = {}
+    
+    # Service constants for configuration
+    SERVICE = "GoogleAI"
+    SERVICE_ACCOUNT_FILE_PATH = "GOOGLE_SERVICE_ACCOUNT_FILE_PATH"
+    PROJECT_ID = "GOOGLE_CLOUD_PROJECT_ID"
+    CREDENTIALS_JSON = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)    
 
-        with ParameterGroup(name="GoogleConfig") as google_config_group:
+        self.add_parameter(
             Parameter(
-                name="google_cloud_region",
+                name="location",
                 type="str",
-                tooltip="Optional. The region of the Google Cloud project.",
+                tooltip="Google Cloud location for the generation job.",
                 default_value="us-central1",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
+                traits=[Options(choices=[
+                    "us-central1",
+                    "us-east1", 
+                    "us-west1",
+                    "europe-west1",
+                    "europe-west4",
+                    "asia-east1"
+                ])],
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
-
-            Parameter(
-                name="google_cloud_project_id",
-                type="str",
-                tooltip="Optional. The project ID of the Google Cloud project.",
-                default_value="",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
-            )
-
-            Parameter(
-                name="google_service_account_file",
-                type="str",
-                tooltip="Optional. The service account file of the Google Cloud project.",
-                default_value="neo-for-griptape-nodes-6c8eedcd5825.json",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY}
-            )
-
-        google_config_group.ui_options = {"collapsed": True}  # Hide the google config group by default.
-        self.add_node_element(google_config_group)
+        )
         
         self.add_parameter(
             Parameter(
@@ -289,70 +285,16 @@ class VertexAIImageGenerator(DataNode):
         except Exception as e:
             raise ValueError(f"Failed to create image artifact: {str(e)}")
 
-
-    def process(self) -> None:
-        if not GOOGLE_INSTALLED:
-            self.append_value_to_parameter("logs", "ERROR: Required libraries are not installed. Please add 'google' to your library's dependencies.")
-            return
-        
-        # Get input values
-        prompt = self.get_parameter_value("prompt")
-        model = self.get_parameter_value("model")
-        number_of_images = self.get_parameter_value("number_of_images")
-        seed = self.get_parameter_value("seed")
-        negative_prompt = self.get_parameter_value("negative_prompt")
-        aspect_ratio = self.get_parameter_value("aspect_ratio")
-        output_mime_type = self.get_parameter_value("output_mime_type")
-        language = self.get_parameter_value("language")
-        add_watermark = self.get_parameter_value("add_watermark")
-        google_cloud_region = self.get_parameter_value("google_cloud_region")
-        google_cloud_project_id = self.get_parameter_value("google_cloud_project_id")
-        google_service_account_file = self.get_parameter_value("google_service_account_file")
-        safety_filter_level = self.get_parameter_value("safety_filter_level")
-        person_generation = self.get_parameter_value("person_generation")
-        enhance_prompt = self.get_parameter_value("enhance_prompt")
-
-        # Validate inputs
-        if not prompt:
-            self._log("ERROR: Prompt is a required input.")
-            return
-       
-        service_account_file = google_service_account_file
-
+    def _generate_and_process_image(self, client, model, prompt, number_of_images, seed, negative_prompt, 
+                                   aspect_ratio, output_mime_type, language, add_watermark, 
+                                   safety_filter_level, person_generation, enhance_prompt) -> None:
+        """Generate image and process result - called via yield."""
         try:
-            final_project_id = None
-            credentials = None
-            
-            if service_account_file:
-                self._log("Using provided service account file for authentication.")
-                if not os.path.exists(service_account_file):
-                    raise FileNotFoundError(f"Service account file not found: {service_account_file}")
-                
-                # Set the environment variable for Application Default Credentials
-                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_file
-                final_project_id = self._get_project_id(service_account_file)
-                credentials = service_account.Credentials.from_service_account_file(service_account_file)
-            else:
-                self._log("Using Application Default Credentials (e.g., gcloud auth).")
-                if not google_cloud_project_id:
-                    self._log("ERROR: Project ID is required when not using a service account file.")
-                    return
-                final_project_id = google_cloud_project_id
-
-            self._log(f"Project ID: {final_project_id}")
-            self._log("Initializing Vertex AI...")
-            aiplatform.init(project=final_project_id, location=google_cloud_region, credentials=credentials)
-            
-            self._log("Initializing Generative AI Client...")
-            client = genai.Client(vertexai=True, project=final_project_id, location=google_cloud_region)
-
-            self._log("Starting image generation...\n")
-
             image = client.models.generate_images(
                 model=model, 
                 prompt=prompt,
                 config=types.GenerateImagesConfig(
-                    number_of_images= number_of_images,
+                    number_of_images=number_of_images,
                     seed=seed,
                     negative_prompt=negative_prompt,
                     aspect_ratio=aspect_ratio,
@@ -393,9 +335,101 @@ class VertexAIImageGenerator(DataNode):
                     self._log("❌ Generated image does not have 'image' attribute")
             else:
                 self._log("❌ No generated images found in response")
+        except Exception as e:
+            self._log(f"❌ An unexpected error occurred during image generation: {e}")
+            import traceback
+            self._log(traceback.format_exc())
+            raise
 
-        except FileNotFoundError as e:
-            self._log(f"❌ CONFIGURATION ERROR: {e}. Please check the path to your service account file.")
+    def process(self) -> AsyncResult[None]:
+        yield lambda: self._process()
+
+    def _process(self):
+        if not GOOGLE_INSTALLED:
+            self.append_value_to_parameter("logs", "ERROR: Required libraries are not installed. Please add 'google' to your library's dependencies.")
+            return
+        
+        # Get input values
+        prompt = self.get_parameter_value("prompt")
+        model = self.get_parameter_value("model")
+        number_of_images = self.get_parameter_value("number_of_images")
+        seed = self.get_parameter_value("seed")
+        negative_prompt = self.get_parameter_value("negative_prompt")
+        aspect_ratio = self.get_parameter_value("aspect_ratio")
+        output_mime_type = self.get_parameter_value("output_mime_type")
+        language = self.get_parameter_value("language")
+        add_watermark = self.get_parameter_value("add_watermark")
+        location = self.get_parameter_value("location")
+        safety_filter_level = self.get_parameter_value("safety_filter_level")
+        person_generation = self.get_parameter_value("person_generation")
+        enhance_prompt = self.get_parameter_value("enhance_prompt")
+
+        # Validate inputs
+        if not prompt:
+            self._log("ERROR: Prompt is a required input.")
+            return
+
+        try:
+            final_project_id = None
+            credentials = None
+            
+            # Try service account file first
+            service_account_file = self.get_config_value(service=self.SERVICE, value=self.SERVICE_ACCOUNT_FILE_PATH)
+            
+            if service_account_file and os.path.exists(service_account_file):
+                self._log("🔑 Using service account file for authentication.")
+                try:
+                    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_file
+                    final_project_id = self._get_project_id(service_account_file)
+                    credentials = service_account.Credentials.from_service_account_file(service_account_file)
+                    self._log(f"✅ Service account authentication successful for project: {final_project_id}")
+                except Exception as e:
+                    self._log(f"❌ Service account file authentication failed: {e}")
+                    raise
+            else:
+                # Fall back to individual credentials from settings
+                self._log("🔑 Service account file not found, using individual credentials from settings.")
+                project_id = self.get_config_value(service=self.SERVICE, value=self.PROJECT_ID)
+                credentials_json = self.get_config_value(service=self.SERVICE, value=self.CREDENTIALS_JSON)
+                
+                if not project_id:
+                    raise ValueError("❌ GOOGLE_CLOUD_PROJECT_ID must be set in library settings when not using a service account file.")
+                
+                if credentials_json:
+                    try:
+                        import json
+                        cred_dict = json.loads(credentials_json)
+                        credentials = service_account.Credentials.from_service_account_info(cred_dict)
+                        self._log("✅ JSON credentials authentication successful.")
+                    except Exception as e:
+                        self._log(f"❌ JSON credentials authentication failed: {e}")
+                        raise
+                else:
+                    self._log("🔑 Using Application Default Credentials (e.g., gcloud auth).")
+                
+                final_project_id = project_id
+
+            self._log(f"Project ID: {final_project_id}")
+            self._log("Initializing Vertex AI...")
+            aiplatform.init(project=final_project_id, location=location, credentials=credentials)
+            
+            self._log("Initializing Generative AI Client...")
+            client = genai.Client(vertexai=True, project=final_project_id, location=location)
+
+            self._log("Starting image generation...\n")
+
+            # Call the image generation method directly
+            self._generate_and_process_image(
+                client, model, prompt, number_of_images, seed, negative_prompt, 
+                aspect_ratio, output_mime_type, language, add_watermark, 
+                safety_filter_level, person_generation, enhance_prompt
+            )
+
+        except ValueError as e:
+            self._log(f"❌ CONFIGURATION ERROR: {e}")
+            self._log("💡 Please set up Google Cloud credentials in the library settings:")
+            self._log("   - GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
+            self._log("   - OR GOOGLE_CLOUD_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON")
         except Exception as e:
             self._log(f"❌ An unexpected error occurred: {e}")
             import traceback
