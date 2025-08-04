@@ -5,7 +5,7 @@ import requests
 from typing import Any, ClassVar
 from griptape.artifacts import UrlArtifact, ListArtifact, ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterGroup
-from griptape_nodes.exe_types.node_types import DataNode, AsyncResult
+from griptape_nodes.exe_types.node_types import DataNode
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
@@ -241,7 +241,7 @@ class VeoImageToVideoGenerator(DataNode):
         
         return blob.download_as_bytes()
 
-    def _process(self) -> None:
+    def process(self) -> None:
         if not GOOGLE_INSTALLED:
             self._log("ERROR: Required Google libraries are not installed. Please add 'google-cloud-aiplatform', 'google-generativeai', 'google-cloud-storage' to your library's dependencies.")
             return
@@ -394,8 +394,4 @@ class VeoImageToVideoGenerator(DataNode):
         except Exception as e:
             self._log(f"❌ An unexpected error occurred: {e}")
             import traceback
-            self._log(traceback.format_exc())
-
-    def process(self) -> AsyncResult[None]:
-        """Non-blocking entry point for Griptape engine."""
-        yield lambda: self._process()
+            self._log(traceback.format_exc()) 
