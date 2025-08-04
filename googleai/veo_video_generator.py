@@ -1,10 +1,11 @@
 import os
 import time
 import json
+import asyncio
 from typing import Any, ClassVar
 from griptape.artifacts import UrlArtifact, ListArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterGroup
-from griptape_nodes.exe_types.node_types import DataNode
+from griptape_nodes.exe_types.node_types import DataNode, AsyncResult
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
@@ -175,8 +176,28 @@ class VeoVideoGenerator(DataNode):
         blob = bucket.blob(blob_path)
         
         return blob.download_as_bytes()
+        
+    async def _download_from_gcs_async(self, gcs_uri: str, project_id: str, credentials) -> bytes:
+        """Asynchronously download video from GCS URI and return bytes."""
+        self._log(f"📥 Downloading from GCS URI: {gcs_uri}")
+        
+        if not gcs_uri.startswith('gs://'):
+            raise ValueError(f"Invalid GCS URI: {gcs_uri}")
+        
+        path_parts = gcs_uri[5:].split('/', 1)
+        bucket_name = path_parts[0]
+        blob_path = path_parts[1]
+        
+        storage_client = self._get_gcs_client(project_id, credentials)
+        
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(blob_path)
+        
+        # Use asyncio to run the blocking operation in a thread pool
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, blob.download_as_bytes)
 
-    def process(self) -> None:
+    def _process(self) -> None:
         if not GOOGLE_INSTALLED:
             self._log("ERROR: Required Google libraries are not installed. Please add 'google-cloud-aiplatform', 'google-generativeai', 'google-cloud-storage' to your library's dependencies.")
             return
@@ -309,3 +330,8 @@ class VeoVideoGenerator(DataNode):
             self._log(f"❌ An unexpected error occurred: {e}")
             import traceback
             self._log(traceback.format_exc()) 
+
+
+    def process(self) -> AsyncResult[None]:
+            """Non-blocking entry point for Griptape engine."""
+            yield lambda: self._process()
