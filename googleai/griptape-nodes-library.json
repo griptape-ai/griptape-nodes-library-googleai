@@ -114,7 +114,8 @@
             "metadata": {
                 "category": "audio/googleai",
                 "description": "Generates instrumental audio using Google's Lyria model.",
-                "display_name": "Lyria Audio Generator"
+                "display_name": "Lyria Audio Generator",
+                "icon": "Music"
             }
         },
         {
@@ -124,7 +125,8 @@
                 "category": "audio",
                 "description": "Displays audio players for a list of audio URLs.",
                 "display_name": "Display Audio (Multi)",
-                "group": "general"
+                "group": "general",
+                "icon": "Music"
             }
         }
     ]
