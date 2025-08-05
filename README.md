@@ -7,7 +7,9 @@ This library provides Griptape Nodes for interacting with Google AI services, in
 - **Veo Text-to-Video Generator**: Generate high-quality videos from text prompts using Google's state-of-the-art Veo model with advanced controls for aspect ratio, resolution, duration, and more.
 - **Veo Image-to-Video Generator**: Transform images into videos using Google's Veo model with base64 encoding support.
 - **Imagen Image Generator**: Generate images from text using Google's Imagen text-to-image models with comprehensive customization options.
+- **Lyria Audio Generator**: Generate 30-second instrumental music using Google's Lyria model with creative prompt guidance to avoid copyright issues.
 - **Multi Video Display**: A dynamic node that displays video players in a grid layout with individual output ports for each video position.
+- **Multi Audio Display**: A dynamic node that displays audio players in a grid layout with individual output ports for each audio position.
 
 ---
 
@@ -172,6 +174,24 @@ Comprehensive image generation using Google's Imagen models with extensive custo
 - Prompt enhancement
 - Seed-based reproducibility
 
+### Lyria Audio Generator
+**File**: `lyria_audio_generator.py`
+
+Generate instrumental music using Google's Lyria model. Produces 30-second WAV audio clips at 48kHz with built-in copyright protection guidance.
+
+**Key Features**:
+- High-quality 48kHz WAV output
+- Seed control for reproducibility  
+- Negative prompts for steering generation
+- Intelligent recitation block detection with helpful suggestions
+- Creative prompt guidance to avoid copyright issues
+
+**Prompt Tips**:
+- Use unique, specific descriptions instead of generic genres
+- Combine unusual elements (e.g., "vintage synthesizer with rain sounds")
+- Focus on textures and atmosphere rather than common musical terms
+- Example: "ambient electronic soundscape with field recording elements"
+
 ### Multi Video Display
 **File**: `multi_video_display.py`
 
@@ -184,6 +204,18 @@ A dynamic utility node for visualizing video outputs with intelligent grid layou
 - Individual video access (`video_1_1`, `video_1_2`, etc.)
 - Debug status information
 
+### Multi Audio Display
+**File**: `multi_audio_display.py`
+
+A dynamic utility node for visualizing audio outputs with intelligent grid layout and individual access ports.
+
+**Key Features**:
+- Automatic grid layout (2 columns)
+- Dynamic output ports based on audio count
+- Real-time UI updates
+- Individual audio access (`audio_1_1`, `audio_1_2`, etc.)
+- Compatible with AudioUrlArtifact format
+
 ---
 
 ## 7. Content Filtering
@@ -194,6 +226,26 @@ Google AI services include content filtering to prevent generation of harmful or
 - Revise your prompt to avoid potentially harmful content
 - Use negative prompts to steer away from problematic content
 - Ensure your content complies with Google's usage policies
+
+### Lyria Recitation Blocks
+
+Lyria has additional copyright protection that may block prompts that seem too similar to existing copyrighted music. If you encounter recitation blocks:
+
+**❌ Avoid Generic Terms**: 
+- "blues beat", "jazz song", "rock anthem"
+- Simple genre names without unique elements
+
+**✅ Use Creative Specificity**:
+- "vintage synthesizer melodies with rain sounds and distant thunder"
+- "acoustic guitar fingerpicking with subtle string arrangements"  
+- "ambient electronic soundscape with field recording elements"
+- "minimalist piano with reverb over soft nature sounds"
+
+**💡 Tips**:
+- Combine unusual elements and textures
+- Focus on atmosphere rather than genres
+- Add environmental or unique sound elements
+- Try the same prompt again - it sometimes works on retry!
 
 ---
 

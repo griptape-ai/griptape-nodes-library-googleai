@@ -14,7 +14,7 @@
     ],
     "metadata": {
         "author": "Griptape",
-        "description": "A Griptape Nodes library for interacting with Google AI services like Veo.",
+        "description": "A Griptape Nodes library for interacting with Google AI services like Veo and Lyria.",
         "url": "www.griptape.ai",
         "library_version": "0.1.0",
         "engine_version": "0.44.0",
@@ -23,7 +23,9 @@
             "Google",
             "AI",
             "Veo",
-            "Video Generation"
+            "Lyria",
+            "Video Generation",
+            "Audio Generation"
         ],
         "dependencies": {
             "pip_dependencies": [
@@ -49,6 +51,22 @@
                 "title": "Image/Google AI",
                 "description": "Nodes for Google AI services.",
                 "icon": "Image"
+            }
+        },
+        {
+            "audio/googleai": {
+                "color": "border-green-500",
+                "title": "Audio/Google AI",
+                "description": "Nodes for Google AI audio services.",
+                "icon": "Music"
+            }
+        },
+        {
+            "audio": {
+                "color": "border-orange-500",
+                "title": "Audio",
+                "description": "General audio processing and display nodes.",
+                "icon": "Volume2"
             }
         }
     ],
@@ -87,6 +105,25 @@
                 "category": "video",
                 "description": "Displays video players for a list of video URLs.",
                 "display_name": "Display Video (Multi)",
+                "group": "general"
+            }
+        },
+        {
+            "class_name": "LyriaAudioGenerator",
+            "file_path": "lyria_audio_generator.py",
+            "metadata": {
+                "category": "audio/googleai",
+                "description": "Generates instrumental audio using Google's Lyria model.",
+                "display_name": "Lyria Audio Generator"
+            }
+        },
+        {
+            "class_name": "AudioDisplayNode",
+            "file_path": "multi_audio_display.py",
+            "metadata": {
+                "category": "audio",
+                "description": "Displays audio players for a list of audio URLs.",
+                "display_name": "Display Audio (Multi)",
                 "group": "general"
             }
         }
