@@ -163,6 +163,52 @@ class VeoImageToVideoGenerator(ControlNode):
         )
         self.add_parameter(grid_param)
 
+        # Individual video output parameters for grid positions
+        # Always add all 4, but hide 2-4 by default (shown when number_of_videos > 1)
+        self.add_parameter(
+            Parameter(
+                name="video_1_1",
+                type="VideoUrlArtifact",
+                output_type="VideoUrlArtifact",
+                tooltip="Video at grid position [1,1]",
+                ui_options={"hide_property": True},
+                allowed_modes={ParameterMode.OUTPUT},
+            )
+        )
+        
+        self.add_parameter(
+            Parameter(
+                name="video_1_2",
+                type="VideoUrlArtifact",
+                output_type="VideoUrlArtifact",
+                tooltip="Video at grid position [1,2]",
+                ui_options={"hide_property": True, "hide_when": {"number_of_videos": [1]}},
+                allowed_modes={ParameterMode.OUTPUT},
+            )
+        )
+        
+        self.add_parameter(
+            Parameter(
+                name="video_2_1",
+                type="VideoUrlArtifact",
+                output_type="VideoUrlArtifact",
+                tooltip="Video at grid position [2,1]",
+                ui_options={"hide_property": True, "hide_when": {"number_of_videos": [1, 2]}},
+                allowed_modes={ParameterMode.OUTPUT},
+            )
+        )
+        
+        self.add_parameter(
+            Parameter(
+                name="video_2_2",
+                type="VideoUrlArtifact",
+                output_type="VideoUrlArtifact",
+                tooltip="Video at grid position [2,2]",
+                ui_options={"hide_property": True, "hide_when": {"number_of_videos": [1, 2, 3]}},
+                allowed_modes={ParameterMode.OUTPUT},
+            )
+        )
+
         # Logs Group
         with ParameterGroup(name="Logs") as logs_group:
             Parameter(
@@ -332,8 +378,17 @@ class VeoImageToVideoGenerator(ControlNode):
                     self._log(f"❌ Could not retrieve video data for video {i+1}.")
 
             if video_artifacts:
-                # Set the entire list of videos at once for ParameterList
+                # Set the entire list of videos at once for grid display
                 self.parameter_output_values["video_artifacts"] = video_artifacts
+                
+                # Assign each video to its individual grid position output
+                for i, video in enumerate(video_artifacts):
+                    row = (i // 2) + 1  # Row: 1, 1, 2, 2
+                    col = (i % 2) + 1   # Col: 1, 2, 1, 2
+                    param_name = f"video_{row}_{col}"
+                    self.parameter_output_values[param_name] = video
+                    self._log(f"📍 Assigned video {i+1} to grid position {param_name}")
+                
                 self._log("\n🎉 SUCCESS! All videos processed.")
             else:
                 self._log("\n❌ No videos were successfully saved.")
