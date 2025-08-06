@@ -158,7 +158,7 @@ class VeoImageToVideoGenerator(ControlNode):
             default_value=[],
             output_type="list[VideoUrlArtifact]",
             tooltip="Generated video artifacts (up to 4 videos)",
-            ui_options={"display": "grid", "grid_columns": 2},
+            ui_options={"display": "grid", "columns": 2},
             allowed_modes={ParameterMode.OUTPUT},
         )
         self.add_parameter(grid_param)
