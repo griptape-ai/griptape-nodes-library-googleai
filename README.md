@@ -89,19 +89,19 @@ The **Describe Media** and **Identify Timecodes** nodes can optionally use Googl
 ### Step 1: Create a GCS Bucket
 
 1. **Go to the Google Cloud Storage Console**: Navigate to [Cloud Storage > Create Bucket](https://console.cloud.google.com/storage/create-bucket)
-2. **Create a new bucket** with the name `griptape-nodes`
-3. **Choose your preferred region** (should match your Vertex AI region)
-4. **Set access control** to "Uniform bucket-level access" (recommended)
-5. **Click "Create"**
+1. **Create a new bucket** with the name `griptape-nodes`
+1. **Choose your preferred region** (should match your Vertex AI region)
+1. **Set access control** to "Uniform bucket-level access" (recommended)
+1. **Click "Create"**
 
 ### Step 2: Grant Storage Permissions
 
 1. **Go to your bucket's permissions**: In the Cloud Storage console, click on your `griptape-nodes` bucket
-2. **Click "Permissions"** tab
-3. **Click "Add"** to add a new principal
-4. **Add your service account**: Enter your service account email (e.g., `griptape-ai-generator@griptape-nodes.iam.gserviceaccount.com`)
-5. **Grant the "Storage Object Admin" role**: This provides the necessary permissions for uploading and managing objects
-6. **Click "Save"**
+1. **Click "Permissions"** tab
+1. **Click "Add"** to add a new principal
+1. **Add your service account**: Enter your service account email (e.g., `griptape-ai-generator@griptape-nodes.iam.gserviceaccount.com`)
+1. **Grant the "Storage Object Admin" role**: This provides the necessary permissions for uploading and managing objects
+1. **Click "Save"**
 
 ### How It Works
 
