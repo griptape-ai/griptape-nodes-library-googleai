@@ -144,9 +144,9 @@ class GeminiImageGenerator(ControlNode):
         # ===== Output =====
         self.add_parameter(
             Parameter(
-                name="image",
-                tooltip="First generated image (as URL).",
-                output_type="ImageUrlArtifact",
+                name="images",
+                tooltip="All generated images (as URL).",
+                output_type="list[ImageUrlArtifact]",
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
@@ -290,31 +290,30 @@ class GeminiImageGenerator(ControlNode):
         self._log("✅ Generation complete.")
 
         # Parse outputs
-        total_images = 0
-        first_image_set = False
+        all_images = []
         if getattr(response, "candidates", None):
             for ci, cand in enumerate(response.candidates):
                 if not getattr(cand, "content", None):
                     continue
                 for pi, part in enumerate(cand.content.parts or []):
-                    # Text
+                    # Text logs
                     if getattr(part, "text", None):
                         self._log(part.text)
+
                     # Inline images
                     if getattr(part, "inline_data", None):
                         mime = getattr(part.inline_data, "mime_type", "image/png")
                         data = getattr(part.inline_data, "data", b"")
                         if mime.startswith("image/") and data:
-                            total_images += 1
-                            if not first_image_set:
-                                art = self._create_image_artifact(data, mime)
-                                self.parameter_output_values["image"] = art
-                                first_image_set = True
+                            art = self._create_image_artifact(data, mime)
+                            all_images.append(art)
 
-        if total_images == 0:
-            self._log("ℹ️ No image outputs returned.")
+        # Save all images to outputs
+        if all_images:
+            self.parameter_output_values["images"] = all_images
+            self._log(f"🖼️ Received {len(all_images)} image(s). Saved to the 'images' output.")
         else:
-            self._log(f"🖼️ Received {total_images} image(s). Saved the first to the 'image' output.")
+            self._log("ℹ️ No image outputs returned.")
 
 
     # ---------- Node entrypoints ----------
