@@ -346,7 +346,6 @@ class GeminiImageGenerator(ControlNode):
             service_account_file = self.get_config_value(service=self.SERVICE, value=self.SERVICE_ACCOUNT_FILE_PATH)
             project_id = None
             credentials = None
-            self._log("service account file " + service_account_file)
 
             if service_account_file and os.path.exists(service_account_file):
                 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_file
