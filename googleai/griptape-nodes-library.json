@@ -66,7 +66,15 @@
                 "color": "border-orange-500",
                 "title": "Audio",
                 "description": "General audio processing and display nodes.",
-                "icon": "Volume2"
+                "icon": "Volume"
+            }
+        },
+        {
+            "analysis/googleai": {
+                "color": "border-blue-500",
+                "title": "Media Analysis/Google AI",
+                "description": "Nodes for analyzing media content using Google AI services.",
+                "icon": "Eye"
             }
         }
     ],
@@ -127,6 +135,26 @@
                 "display_name": "Display Audio (Multi)",
                 "group": "general",
                 "icon": "Music"
+            }
+        },
+        {
+            "class_name": "DescribeMedia",
+            "file_path": "describe_media.py",
+            "metadata": {
+                "category": "analysis/googleai",
+                "description": "Analyzes images, videos, or audio and answers questions about the media content using Google's Gemini model.",
+                "display_name": "Describe Media",
+                "icon": "Eye"
+            }
+        },
+        {
+            "class_name": "IdentifyTimecodes",
+            "file_path": "identify_timecodes.py",
+            "metadata": {
+                "category": "analysis/googleai",
+                "description": "Identifies specific timecode markers in media content based on user prompts, outputting structured JSON with precise timing data.",
+                "display_name": "Identify Timecodes",
+                "icon": "Clock"
             }
         }
     ]

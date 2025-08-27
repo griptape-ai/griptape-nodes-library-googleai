@@ -1,37 +1,31 @@
+import json
 import os
 import time
-import json
 from typing import Any, ClassVar
-from griptape.artifacts import UrlArtifact, ListArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterGroup
-from griptape_nodes.exe_types.node_types import ControlNode, AsyncResult
+
+from griptape_nodes_library.video.video_url_artifact import VideoUrlArtifact
+
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 # Attempt to import Google libraries
 try:
-    from google.oauth2 import service_account
-    from google.cloud import aiplatform, storage
     from google import genai
+    from google.cloud import aiplatform, storage
     from google.genai.types import GenerateVideosConfig
+    from google.oauth2 import service_account
+
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
 
 
-class VideoUrlArtifact(UrlArtifact):
-    """
-    Artifact that contains a URL to a video.
-    """
-    def __init__(self, value: str, name: str | None = None):
-        super().__init__(value=value, name=name or self.__class__.__name__)
-        self.mime_type = "video/mp4"
-        self.media_type = "video"
-
 class VeoVideoGenerator(ControlNode):
     # Class-level cache for GCS clients
     _gcs_client_cache: ClassVar[dict[str, Any]] = {}
-    
+
     # Service constants for configuration
     SERVICE = "GoogleAI"
     SERVICE_ACCOUNT_FILE_PATH = "GOOGLE_SERVICE_ACCOUNT_FILE_PATH"
@@ -60,12 +54,16 @@ class VeoVideoGenerator(ControlNode):
                 type="str",
                 tooltip="The Veo model to use for generation.",
                 default_value="veo-3.0-generate-001",
-                traits=[Options(choices=[
-                    "veo-3.0-generate-001",
-                    "veo-3.0-fast-generate-001", 
-                    "veo-3.0-generate-preview",
-                    "veo-3.0-fast-generate-preview"
-                ])],
+                traits=[
+                    Options(
+                        choices=[
+                            "veo-3.0-generate-001",
+                            "veo-3.0-fast-generate-001",
+                            "veo-3.0-generate-preview",
+                            "veo-3.0-fast-generate-preview",
+                        ]
+                    )
+                ],
                 allowed_modes={ParameterMode.PROPERTY},
             )
         )
@@ -109,14 +107,11 @@ class VeoVideoGenerator(ControlNode):
                 type="str",
                 tooltip="Google Cloud location for the generation job.",
                 default_value="us-central1",
-                traits=[Options(choices=[
-                    "us-central1",
-                    "us-east1", 
-                    "us-west1",
-                    "europe-west1",
-                    "europe-west4",
-                    "asia-east1"
-                ])],
+                traits=[
+                    Options(
+                        choices=["us-central1", "us-east1", "us-west1", "europe-west1", "europe-west4", "asia-east1"]
+                    )
+                ],
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
@@ -145,7 +140,7 @@ class VeoVideoGenerator(ControlNode):
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
-        
+
         self.add_parameter(
             Parameter(
                 name="video_1_2",
@@ -156,7 +151,7 @@ class VeoVideoGenerator(ControlNode):
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
-        
+
         self.add_parameter(
             Parameter(
                 name="video_2_1",
@@ -167,7 +162,7 @@ class VeoVideoGenerator(ControlNode):
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
-        
+
         self.add_parameter(
             Parameter(
                 name="video_2_2",
@@ -201,41 +196,40 @@ class VeoVideoGenerator(ControlNode):
         """Read the project_id from the service account JSON file."""
         if not os.path.exists(service_account_file):
             raise FileNotFoundError(f"Service account file not found: {service_account_file}")
-        
-        with open(service_account_file, 'r') as f:
+
+        with open(service_account_file) as f:
             service_account_info = json.load(f)
-        
-        project_id = service_account_info.get('project_id')
+
+        project_id = service_account_info.get("project_id")
         if not project_id:
             raise ValueError("No 'project_id' found in the service account file.")
-        
+
         return project_id
 
     def _get_gcs_client(self, project_id: str, credentials):
         """Get a cached or new GCS client."""
         if project_id in self._gcs_client_cache:
             return self._gcs_client_cache[project_id]
-        else:
-            client = storage.Client(project=project_id, credentials=credentials)
-            self._gcs_client_cache[project_id] = client
-            return client
+        client = storage.Client(project=project_id, credentials=credentials)
+        self._gcs_client_cache[project_id] = client
+        return client
 
     def _download_from_gcs(self, gcs_uri: str, project_id: str, credentials) -> bytes:
         """Download video from GCS URI and return bytes."""
         self._log(f"📥 Downloading from GCS URI: {gcs_uri}")
-        
-        if not gcs_uri.startswith('gs://'):
+
+        if not gcs_uri.startswith("gs://"):
             raise ValueError(f"Invalid GCS URI: {gcs_uri}")
-        
-        path_parts = gcs_uri[5:].split('/', 1)
+
+        path_parts = gcs_uri[5:].split("/", 1)
         bucket_name = path_parts[0]
         blob_path = path_parts[1]
-        
+
         storage_client = self._get_gcs_client(project_id, credentials)
-        
+
         bucket = storage_client.bucket(bucket_name)
         blob = bucket.blob(blob_path)
-        
+
         return blob.download_as_bytes()
 
     def _poll_and_process_video_result(self, client, operation, final_project_id, credentials) -> None:
@@ -248,11 +242,11 @@ class VeoVideoGenerator(ControlNode):
                 self._log("⏳ Still generating...")
 
             self._log("✅ Video generation completed!")
-            
-            if hasattr(operation, 'error') and operation.error:
+
+            if hasattr(operation, "error") and operation.error:
                 self._log(f"❌ Operation has error: {operation.error}")
                 return
-                
+
             if not operation.response:
                 self._log("❌ Video generation completed but no response found.")
                 return
@@ -260,74 +254,80 @@ class VeoVideoGenerator(ControlNode):
             video_artifacts = []
             # Fix: videos are in operation.response, not operation.result
             generated_videos = operation.response.generated_videos if operation.response else None
-            
+
             # Check for content filtering
-            if operation.response and hasattr(operation.response, 'rai_media_filtered_count'):
+            if operation.response and hasattr(operation.response, "rai_media_filtered_count"):
                 filtered_count = operation.response.rai_media_filtered_count
                 if filtered_count > 0:
                     self._log(f"🚫 Content Filter: {filtered_count} video(s) were filtered by Google's content policy.")
-                    if hasattr(operation.response, 'rai_media_filtered_reasons') and operation.response.rai_media_filtered_reasons:
+                    if (
+                        hasattr(operation.response, "rai_media_filtered_reasons")
+                        and operation.response.rai_media_filtered_reasons
+                    ):
                         for reason in operation.response.rai_media_filtered_reasons:
                             self._log(f"   Reason: {reason}")
                     self._log("💡 Tip: Try rephrasing your prompt to avoid violent, sexual, or harmful content.")
                     return
-            
+
             if not generated_videos:
                 self._log("❌ No videos found in the response.")
                 return
-                
+
             self._log(f"🎯 Generated {len(generated_videos)} video(s)")
 
             for i, video in enumerate(generated_videos):
-                self._log(f"Processing video {i+1}...")
+                self._log(f"Processing video {i + 1}...")
                 video_bytes = None
-                
+
                 # Check for direct video bytes
-                if hasattr(video.video, 'video_bytes') and video.video.video_bytes:
-                    self._log(f"💾 Video {i+1} returned as direct bytes.")
+                if hasattr(video.video, "video_bytes") and video.video.video_bytes:
+                    self._log(f"💾 Video {i + 1} returned as direct bytes.")
                     video_bytes = video.video.video_bytes
                 # Fallback to downloading from GCS URI
-                elif hasattr(video.video, 'uri') and video.video.uri:
-                    self._log(f"📹 Video {i+1} has GCS URI. Downloading...")
+                elif hasattr(video.video, "uri") and video.video.uri:
+                    self._log(f"📹 Video {i + 1} has GCS URI. Downloading...")
                     video_bytes = self._download_from_gcs(video.video.uri, final_project_id, credentials)
-                
+
                 if video_bytes:
-                    filename = f"veo_video_{int(time.time())}_{i+1}.mp4"
+                    filename = f"veo_video_{int(time.time())}_{i + 1}.mp4"
                     self._log(f"Saving video bytes to static storage as {filename}...")
-                    
+
                     static_files_manager = GriptapeNodes.StaticFilesManager()
                     url = static_files_manager.save_static_file(video_bytes, filename)
-                    
+
                     url_artifact = VideoUrlArtifact(value=url, name=filename)
                     video_artifacts.append(url_artifact)
-                    self._log(f"✅ Video {i+1} saved. URL: {url}")
+                    self._log(f"✅ Video {i + 1} saved. URL: {url}")
                 else:
-                    self._log(f"❌ Could not retrieve video data for video {i+1}.")
+                    self._log(f"❌ Could not retrieve video data for video {i + 1}.")
 
             if video_artifacts:
                 # Set the entire list of videos at once for grid display
                 self.parameter_output_values["video_artifacts"] = video_artifacts
-                
+
                 # Assign each video to its individual grid position output
                 for i, video in enumerate(video_artifacts):
                     row = (i // 2) + 1  # Row: 1, 1, 2, 2
-                    col = (i % 2) + 1   # Col: 1, 2, 1, 2
+                    col = (i % 2) + 1  # Col: 1, 2, 1, 2
                     param_name = f"video_{row}_{col}"
                     self.parameter_output_values[param_name] = video
-                    self._log(f"📍 Assigned video {i+1} to grid position {param_name}")
-                
+                    self._log(f"📍 Assigned video {i + 1} to grid position {param_name}")
+
                 self._log("\n🎉 SUCCESS! All videos processed.")
             else:
                 self._log("\n❌ No videos were successfully saved.")
         except Exception as e:
             self._log(f"❌ An unexpected error occurred during polling: {e}")
             import traceback
+
             self._log(traceback.format_exc())
             raise
 
     def process(self) -> AsyncResult:
         if not GOOGLE_INSTALLED:
-            self._log("ERROR: Required Google libraries are not installed. Please add 'google-cloud-aiplatform', 'google-generativeai', 'google-cloud-storage' to your library's dependencies.")
+            self._log(
+                "ERROR: Required Google libraries are not installed. Please add 'google-cloud-aiplatform', 'google-generativeai', 'google-cloud-storage' to your library's dependencies."
+            )
             return
             yield  # unreachable but makes the function a generator
 
@@ -343,7 +343,7 @@ class VeoVideoGenerator(ControlNode):
         if not prompt:
             self._log("ERROR: Prompt is a required input.")
             return
-            
+
         # Validate aspect ratio for specific models
         if model == "veo-3.0-generate-preview" and aspect_ratio == "9:16":
             self._log("ERROR: 9:16 aspect ratio is not supported by veo-3.0-generate-preview model.")
@@ -352,10 +352,10 @@ class VeoVideoGenerator(ControlNode):
         try:
             final_project_id = None
             credentials = None
-            
+
             # Try service account file first
             service_account_file = self.get_config_value(service=self.SERVICE, value=self.SERVICE_ACCOUNT_FILE_PATH)
-            
+
             if service_account_file and os.path.exists(service_account_file):
                 self._log("🔑 Using service account file for authentication.")
                 try:
@@ -371,13 +371,16 @@ class VeoVideoGenerator(ControlNode):
                 self._log("🔑 Service account file not found, using individual credentials from settings.")
                 project_id = self.get_config_value(service=self.SERVICE, value=self.PROJECT_ID)
                 credentials_json = self.get_config_value(service=self.SERVICE, value=self.CREDENTIALS_JSON)
-                
+
                 if not project_id:
-                    raise ValueError("❌ GOOGLE_CLOUD_PROJECT_ID must be set in library settings when not using a service account file.")
-                
+                    raise ValueError(
+                        "❌ GOOGLE_CLOUD_PROJECT_ID must be set in library settings when not using a service account file."
+                    )
+
                 if credentials_json:
                     try:
                         import json
+
                         cred_dict = json.loads(credentials_json)
                         credentials = service_account.Credentials.from_service_account_info(cred_dict)
                         self._log("✅ JSON credentials authentication successful.")
@@ -386,18 +389,18 @@ class VeoVideoGenerator(ControlNode):
                         raise
                 else:
                     self._log("🔑 Using Application Default Credentials (e.g., gcloud auth).")
-                
+
                 final_project_id = project_id
 
             self._log(f"Project ID: {final_project_id}")
             self._log("Initializing Vertex AI...")
             aiplatform.init(project=final_project_id, location=location, credentials=credentials)
-            
+
             self._log("Initializing Generative AI Client...")
             client = genai.Client(vertexai=True, project=final_project_id, location=location)
 
             self._log(f"🎬 Generating video for prompt: '{prompt}'")
-            
+
             operation = client.models.generate_videos(
                 model=model,
                 prompt=prompt,
@@ -409,7 +412,7 @@ class VeoVideoGenerator(ControlNode):
             )
 
             self._log("⏳ Operation started! Waiting for completion...")
-            
+
             # Use yield pattern for non-blocking execution
             yield lambda: self._poll_and_process_video_result(client, operation, final_project_id, credentials)
 
@@ -421,4 +424,5 @@ class VeoVideoGenerator(ControlNode):
         except Exception as e:
             self._log(f"❌ An unexpected error occurred: {e}")
             import traceback
-            self._log(traceback.format_exc()) 
+
+            self._log(traceback.format_exc())
