@@ -89,6 +89,15 @@
             }
         },
         {
+            "class_name": "GeminiImageGenerator",
+            "file_path": "gemini_image_generator.py",
+            "metadata": {
+                "category": "image/googleai",
+                "description": "Generates images using Google's Gemini models.",
+                "display_name": "Gemini Image Generator"
+            }
+        },
+        {
             "class_name": "VeoVideoGenerator",
             "file_path": "veo_video_generator.py",
             "metadata": {
