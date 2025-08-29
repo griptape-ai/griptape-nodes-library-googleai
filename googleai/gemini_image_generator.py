@@ -1,7 +1,7 @@
 import os
 import time
 import json
-from typing import Any, ClassVar, List
+from typing import Any, List
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterGroup, ParameterList
 from griptape_nodes.exe_types.node_types import ControlNode, AsyncResult
@@ -99,7 +99,7 @@ class GeminiImageGenerator(ControlNode):
             Parameter(
                 name="temperature",
                 type="float",
-                tooltip="Sampling temperature (0.0–2.0).",
+                tooltip="Sampling temperature for image generation (0.0–1.0). Higher values increase randomness.",
                 default_value=1.0,
                 allowed_modes={ParameterMode.PROPERTY},
             )
@@ -142,6 +142,15 @@ class GeminiImageGenerator(ControlNode):
         )
 
         # ===== Output =====
+        self.add_parameter(
+            Parameter(
+                name="image",
+                tooltip="Generated image with cached data",
+                output_type="ImageUrlArtifact",
+                allowed_modes={ParameterMode.OUTPUT},
+            )
+        )
+        
         self.add_parameter(
             Parameter(
                 name="images",
@@ -271,16 +280,41 @@ class GeminiImageGenerator(ControlNode):
                 self._log(f"⚠️ Skipping file due to error: {e}")
 
         contents = [types.Content(role="user", parts=parts)]
-        eff_candidates = max(1, min(int(candidate_count or 1), 8))
+        original_candidates = int(candidate_count or 1)
+        eff_candidates = max(1, min(original_candidates, 8))
+        
+        if original_candidates != eff_candidates:
+            self._log(f"⚠️ Candidate count adjusted from {original_candidates} to {eff_candidates} (valid range: 1-8)")
+        
+        # Validate parameters for image generation model
+        eff_temperature = float(temperature or 1.0)
+        if not (0.0 <= eff_temperature <= 1.0):
+            error_msg = (
+                f"❌ Temperature must be between 0.0 and 1.0 for image generation models. "
+                f"Got: {eff_temperature}. The gemini-2.5-flash-image-preview model has "
+                f"more restrictive temperature constraints than text generation models."
+            )
+            self._log(error_msg)
+            raise ValueError(error_msg)
+        
+        eff_top_p = float(top_p or 0.95)
+        if not (0.0 <= eff_top_p <= 1.0):
+            error_msg = f"❌ Top-p must be between 0.0 and 1.0. Got: {eff_top_p}"
+            self._log(error_msg)
+            raise ValueError(error_msg)
 
         config = types.GenerateContentConfig(
-            temperature=float(temperature or 1.0),
-            top_p=float(top_p or 0.95),
+            temperature=eff_temperature,
+            top_p=eff_top_p,
             candidate_count=eff_candidates,        # 1–8
             response_modalities=["IMAGE", "TEXT"], # allow both
             # You can add safety_settings here if you expose them as parameters.
         )
 
+        self._log("🎛️ Generation parameters:")
+        self._log(f"  • Temperature: {eff_temperature}")
+        self._log(f"  • Top-p: {eff_top_p}")
+        self._log(f"  • Candidate count: {eff_candidates}")
         self._log("🧠 Calling Gemini generate_content...")
         response = client.models.generate_content(
             model=model,
@@ -311,7 +345,13 @@ class GeminiImageGenerator(ControlNode):
         # Save all images to outputs
         if all_images:
             self.parameter_output_values["images"] = all_images
-            self._log(f"🖼️ Received {len(all_images)} image(s). Saved to the 'images' output.")
+            
+            # If there's exactly one image, also set it in the single image parameter
+            if len(all_images) == 1:
+                self.parameter_output_values["image"] = all_images[0]
+                self._log("🖼️ Received 1 image. Saved to both 'image' and 'images' outputs.")
+            else:
+                self._log(f"🖼️ Received {len(all_images)} image(s). Saved to the 'images' output.")
         else:
             self._log("ℹ️ No image outputs returned.")
 
