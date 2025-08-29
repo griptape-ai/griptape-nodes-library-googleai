@@ -120,6 +120,7 @@ class GeminiImageGenerator(ControlNode):
                 tooltip="Number of candidates to sample (1–8).",
                 default_value=1,
                 allowed_modes={ParameterMode.PROPERTY},
+                ui_options={"hide": True},
             )
         )
 
