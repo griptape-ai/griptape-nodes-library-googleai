@@ -172,9 +172,22 @@ class GeminiImageGenerator(ControlNode):
             )
         self.add_node_element(logs_group)
 
+        # Ensure outputs are clean on (re)initialization
+        self._reset_outputs()
+
     # ---------- Utilities ----------
     def _log(self, message: str):
         self.append_value_to_parameter("logs", message + "\n")
+
+    def _reset_outputs(self) -> None:
+        """Clear output parameters so stale values don't persist across re-adds/reruns."""
+        try:
+            self.parameter_output_values["image"] = None
+            self.parameter_output_values["images"] = []
+            self.parameter_output_values["logs"] = ""
+        except Exception:
+            # Be defensive if the base class changes how outputs are stored
+            pass
 
     def _get_project_id(self, service_account_file: str) -> str:
         if not os.path.exists(service_account_file):
@@ -352,8 +365,13 @@ class GeminiImageGenerator(ControlNode):
                 self.parameter_output_values["image"] = all_images[0]
                 self._log("🖼️ Received 1 image. Saved to both 'image' and 'images' outputs.")
             else:
+                # Multiple images: clear the single-image output to avoid stale values
+                self.parameter_output_values["image"] = None
                 self._log(f"🖼️ Received {len(all_images)} image(s). Saved to the 'images' output.")
         else:
+            # No images returned: clear outputs
+            self.parameter_output_values["image"] = None
+            self.parameter_output_values["images"] = []
             self._log("ℹ️ No image outputs returned.")
 
 
@@ -362,6 +380,8 @@ class GeminiImageGenerator(ControlNode):
         yield lambda: self._process()
 
     def _process(self):
+        # Clear outputs at the start of each run
+        self._reset_outputs()
         if not GOOGLE_INSTALLED:
             self._log("ERROR: Missing Google AI libraries. Install `google-genai` and `google-cloud-aiplatform`.")
             return
@@ -379,6 +399,9 @@ class GeminiImageGenerator(ControlNode):
         candidate_count = self.get_parameter_value("candidate_count")
 
         if not prompt and not input_images and not input_files:
+            # Clear outputs on validation failure
+            self.parameter_output_values["image"] = None
+            self.parameter_output_values["images"] = []
             self._log("❌ Provide at least a prompt, an image, or a file.")
             return
 
@@ -423,3 +446,6 @@ class GeminiImageGenerator(ControlNode):
             self._log(f"❌ Error: {e}")
             import traceback
             self._log(traceback.format_exc())
+            # Ensure stale outputs aren't left behind on errors
+            self.parameter_output_values["image"] = None
+            self.parameter_output_values["images"] = []
