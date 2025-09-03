@@ -254,18 +254,23 @@ class GeminiImageGenerator(ControlNode):
         if not isinstance(images, list):
             images = [images]
         kept = 0
-        for img_art in images:
+        for img_idx, img_art in enumerate(images):
             if kept >= self.MAX_PROMPT_IMAGES:
                 self._log("ℹ️ Only the first 3 input images are used.")
                 break
             try:
                 b, mime = self._image_artifact_to_bytes_mime(img_art)
                 if mime not in self.ALLOWED_IMAGE_MIME:
-                    self._log(f"⚠️ Skipping image with unsupported MIME: {mime}")
-                    continue
+                    img_name = getattr(img_art, 'name', f'image_{img_idx + 1}')
+                    error_msg = f"❌ Image '{img_name}' has unsupported MIME type: {mime}. Supported types: {', '.join(self.ALLOWED_IMAGE_MIME)}"
+                    self._log(error_msg)
+                    raise ValueError(error_msg)
                 if len(b) > self.MAX_IMAGE_BYTES:
-                    self._log(f"⚠️ Skipping image over 7 MB (size={len(b)} bytes).")
-                    continue
+                    img_name = getattr(img_art, 'name', f'image_{img_idx + 1}')
+                    size_mb = len(b) / (1024 * 1024)
+                    error_msg = f"❌ Image '{img_name}' size {size_mb:.1f} MB exceeds maximum allowed size of 7 MB"
+                    self._log(error_msg)
+                    raise ValueError(error_msg)
                 parts.append(types.Part.from_bytes(data=b, mime_type=mime))
                 kept += 1
             except Exception as e:
@@ -276,18 +281,23 @@ class GeminiImageGenerator(ControlNode):
         if not isinstance(docs, list):
             docs = [docs]
         kept = 0
-        for doc_art in docs:
+        for doc_idx, doc_art in enumerate(docs):
             if kept >= self.MAX_PROMPT_DOCS:
                 self._log("ℹ️ Only the first 3 input files are used.")
                 break
             try:
                 b, mime = self._file_artifact_to_bytes_mime(doc_art)
                 if mime not in self.ALLOWED_DOC_MIME:
-                    self._log(f"⚠️ Skipping file with unsupported MIME: {mime}")
-                    continue
+                    doc_name = getattr(doc_art, 'name', f'document_{doc_idx + 1}')
+                    error_msg = f"❌ Document '{doc_name}' has unsupported MIME type: {mime}. Supported types: {', '.join(self.ALLOWED_DOC_MIME)}"
+                    self._log(error_msg)
+                    raise ValueError(error_msg)
                 if len(b) > self.MAX_DOC_BYTES:
-                    self._log(f"⚠️ Skipping file over 50 MB (size={len(b)} bytes).")
-                    continue
+                    doc_name = getattr(doc_art, 'name', f'document_{doc_idx + 1}')
+                    size_mb = len(b) / (1024 * 1024)
+                    error_msg = f"❌ Document '{doc_name}' size {size_mb:.1f} MB exceeds maximum allowed size of 50 MB"
+                    self._log(error_msg)
+                    raise ValueError(error_msg)
                 parts.append(types.Part.from_bytes(data=b, mime_type=mime))
                 kept += 1
             except Exception as e:
