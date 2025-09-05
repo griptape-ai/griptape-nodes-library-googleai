@@ -70,6 +70,14 @@
             }
         },
         {
+            "analysis": {
+                "color": "border-blue-500",
+                "title": "Analysis",
+                "description": "General analysis nodes.",
+                "icon": "Eye"
+            }
+        },
+        {
             "analysis/googleai": {
                 "color": "border-blue-500",
                 "title": "Media Analysis/Google AI",
