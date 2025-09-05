@@ -63,10 +63,10 @@
         },
         {
             "audio": {
-                "color": "border-orange-500",
+                "color": "border-sky-500",
                 "title": "Audio",
                 "description": "General audio processing and display nodes.",
-                "icon": "Volume"
+                "icon": "audio-lines"
             }
         },
         {
