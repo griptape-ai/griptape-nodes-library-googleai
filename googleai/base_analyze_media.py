@@ -1,8 +1,10 @@
 import base64
 import json
 import os
+import urllib.parse
 from pathlib import Path
 
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes  # type: ignore[reportMissingImports]
 from griptape_nodes.traits.slider import Slider
 
 # Try to import external library artifacts
@@ -59,13 +61,15 @@ class BaseAnalyzeMedia(ControlNode):
             ParameterList(
                 name="media",
                 input_types=[
+                    "VideoUrlArtifact",
                     "ImageArtifact",
                     "ImageUrlArtifact",
                     "AudioArtifact",
                     "AudioUrlArtifact",
-                    "VideoUrlArtifact",
+                    "Any",
+                    "any",
                 ],
-                type="Any",
+                type="VideoUrlArtifact",
                 tooltip="The media artifact to analyze (image, video, or audio).",
                 allowed_modes={ParameterMode.INPUT},
             )
@@ -163,7 +167,7 @@ class BaseAnalyzeMedia(ControlNode):
                 ui_options={"multiline": True, "placeholder_text": "Logs"},
             )
 
-        logs_group.ui_options = {"hide": True}
+        # logs_group.ui_options = {"hide": True}
         self.add_node_element(logs_group)
 
     def _log(self, message: str) -> None:
@@ -262,10 +266,6 @@ class BaseAnalyzeMedia(ControlNode):
 
     def _get_localhost_file_path(self, url: str) -> Path:
         """Convert localhost URL to local file path."""
-        import urllib.parse
-
-        from griptape_nodes import GriptapeNodes
-
         parsed_url = urllib.parse.urlparse(url)
         filename = parsed_url.path.split("/")[-1].split("?")[0]  # Remove query params
         static_files_path = GriptapeNodes.ConfigManager().workspace_path / "static_files"

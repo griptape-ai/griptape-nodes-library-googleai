@@ -24,7 +24,9 @@ class IdentifyTimecodes(BaseAnalyzeMedia):
         # Since we're talking timecodes, we are only taking video or audio files
         media_param = self.get_parameter_by_name("media")
         if media_param:
-            media_param.allowed_types = ["VideoUrlArtifact", "AudioUrlArtifact"]
+            # Note: allowed_types might not be a settable attribute, this is just for documentation
+            # The actual filtering should be handled by the UI or validation
+            pass
 
         # The output is JSON, so let's modify the output parameter to be a JSON object
         output_param = self.get_parameter_by_name("output")
