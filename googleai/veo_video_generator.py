@@ -3,7 +3,7 @@ import os
 import time
 from typing import Any, ClassVar
 
-from griptape_nodes_library.video.video_url_artifact import VideoUrlArtifact
+from griptape.artifacts import VideoUrlArtifact
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode

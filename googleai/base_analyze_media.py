@@ -7,14 +7,8 @@ from pathlib import Path
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes  # type: ignore[reportMissingImports]
 from griptape_nodes.traits.slider import Slider
 
-# Try to import external library artifacts
-try:
-    from griptape_nodes_library.audio.audio_url_artifact import AudioUrlArtifact as ExternalAudioUrlArtifact
-    from griptape_nodes_library.video.video_url_artifact import VideoUrlArtifact as ExternalVideoUrlArtifact
+from griptape.artifacts import AudioUrlArtifact, VideoUrlArtifact
 
-    EXTERNAL_LIBRARY_AVAILABLE = True
-except ImportError:
-    EXTERNAL_LIBRARY_AVAILABLE = False
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode

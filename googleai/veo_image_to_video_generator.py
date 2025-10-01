@@ -3,8 +3,7 @@ import os
 import time
 
 import requests
-from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes_library.video.video_url_artifact import VideoUrlArtifact
+from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
