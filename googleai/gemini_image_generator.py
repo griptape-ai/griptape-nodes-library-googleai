@@ -1,6 +1,7 @@
 import os
 import time
 import json
+import base64
 from typing import Any, List
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterGroup, ParameterList
@@ -15,15 +16,12 @@ from griptape.artifacts import (
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
 try:
-    from google import genai
     from google.oauth2 import service_account
-    from google.cloud import aiplatform
-    from google.genai import types
-    GOOGLE_INSTALLED = True
+    from google.auth.transport.requests import Request
+    GOOGLE_AUTH_INSTALLED = True
 except ImportError:
-    GOOGLE_INSTALLED = False
+    GOOGLE_AUTH_INSTALLED = False
 
-# Optional dependency for fetching ImageUrlArtifact bytes
 try:
     import requests
     REQUESTS_INSTALLED = True
@@ -64,9 +62,9 @@ class GeminiImageGenerator(ControlNode):
             Parameter(
                 name="location",
                 type="str",
-                tooltip="Google Cloud location (Gemini uses 'global').",
-                default_value="global",
-                traits=[Options(choices=["global"])],
+                tooltip="Google Cloud location for Gemini image generation.",
+                default_value="us-central1",
+                traits=[Options(choices=["us-central1", "europe-west1", "asia-southeast1", "global"])],
                 allowed_modes={ParameterMode.PROPERTY},
             )
         )
@@ -87,9 +85,21 @@ class GeminiImageGenerator(ControlNode):
             Parameter(
                 name="model",
                 type="str",
-                tooltip="Gemini model (fixed for this node).",
-                default_value="gemini-2.5-flash-image-preview",
-                traits=[Options(choices=["gemini-2.5-flash-image-preview"])],
+                tooltip="Gemini model for image generation.",
+                default_value="gemini-2.5-flash-image",
+                traits=[Options(choices=["gemini-2.5-flash-image", "gemini-2.5-flash-image-preview"])],
+                allowed_modes={ParameterMode.PROPERTY},
+            )
+        )
+
+        # Image configuration
+        self.add_parameter(
+            Parameter(
+                name="aspect_ratio",
+                type="str",
+                tooltip="Aspect ratio for generated images.",
+                default_value="16:9",
+                traits=[Options(choices=["1:1", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"])],
                 allowed_modes={ParameterMode.PROPERTY},
             )
         )
@@ -239,15 +249,22 @@ class GeminiImageGenerator(ControlNode):
             return data, mime
         raise TypeError("Unsupported file artifact type.")
 
+    def _get_access_token(self, credentials) -> str:
+        """Get access token from credentials."""
+        if not credentials.valid:
+            credentials.refresh(Request())
+        return credentials.token
+
     # ---------- Core generation ----------
     def _generate_and_process(
-    self, client, model, prompt, input_images, input_files, temperature, top_p, candidate_count
+    self, credentials, project_id, location, model, prompt, input_images, input_files, 
+    temperature, top_p, candidate_count, aspect_ratio
 ):
-        # Build parts respecting model limits
-        parts: List[types.Part] = []
+        # Build parts list for REST API
+        parts: List[dict] = []
 
         if prompt:
-            parts.append(types.Part.from_text(text=prompt))
+            parts.append({"text": prompt})
 
         # Images (max 3, ≤ 7 MB each, allowed mimes)
         images = input_images or []
@@ -271,7 +288,13 @@ class GeminiImageGenerator(ControlNode):
                     error_msg = f"❌ Image '{img_name}' size {size_mb:.1f} MB exceeds maximum allowed size of 7 MB"
                     self._log(error_msg)
                     raise ValueError(error_msg)
-                parts.append(types.Part.from_bytes(data=b, mime_type=mime))
+                # REST API format: inline_data with base64
+                parts.append({
+                    "inline_data": {
+                        "mime_type": mime,
+                        "data": base64.b64encode(b).decode('utf-8')
+                    }
+                })
                 kept += 1
             except Exception as e:
                 self._log(f"⚠️ Skipping image due to error: {e}")
@@ -298,12 +321,18 @@ class GeminiImageGenerator(ControlNode):
                     error_msg = f"❌ Document '{doc_name}' size {size_mb:.1f} MB exceeds maximum allowed size of 50 MB"
                     self._log(error_msg)
                     raise ValueError(error_msg)
-                parts.append(types.Part.from_bytes(data=b, mime_type=mime))
+                # REST API format: inline_data with base64
+                parts.append({
+                    "inline_data": {
+                        "mime_type": mime,
+                        "data": base64.b64encode(b).decode('utf-8')
+                    }
+                })
                 kept += 1
             except Exception as e:
                 self._log(f"⚠️ Skipping file due to error: {e}")
 
-        contents = [types.Content(role="user", parts=parts)]
+        # Build REST API request
         original_candidates = int(candidate_count or 1)
         eff_candidates = max(1, min(original_candidates, 8))
         
@@ -327,44 +356,68 @@ class GeminiImageGenerator(ControlNode):
             self._log(error_msg)
             raise ValueError(error_msg)
 
-        config = types.GenerateContentConfig(
-            temperature=eff_temperature,
-            top_p=eff_top_p,
-            candidate_count=eff_candidates,        # 1–8
-            response_modalities=["IMAGE", "TEXT"], # allow both
-            # You can add safety_settings here if you expose them as parameters.
-        )
+        # Build REST API payload
+        payload = {
+            "contents": {
+                "role": "USER",
+                "parts": parts
+            },
+            "generation_config": {
+                "temperature": eff_temperature,
+                "topP": eff_top_p,
+                "candidateCount": eff_candidates,
+                "response_modalities": ["TEXT", "IMAGE"],
+                "image_config": {
+                    "aspect_ratio": aspect_ratio
+                }
+            }
+        }
 
         self._log("🎛️ Generation parameters:")
         self._log(f"  • Temperature: {eff_temperature}")
         self._log(f"  • Top-p: {eff_top_p}")
         self._log(f"  • Candidate count: {eff_candidates}")
-        self._log("🧠 Calling Gemini generate_content...")
-        response = client.models.generate_content(
-            model=model,
-            contents=contents,
-            config=config,
-        )
+        self._log(f"  • Aspect ratio: {aspect_ratio}")
+        
+        # Make REST API call
+        access_token = self._get_access_token(credentials)
+        api_endpoint = f"https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/google/models/{model}:generateContent"
+        
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+        
+        self._log("🧠 Calling Gemini generateContent API...")
+        if not REQUESTS_INSTALLED:
+            raise RuntimeError("`requests` library is required for REST API calls.")
+        
+        response = requests.post(api_endpoint, headers=headers, json=payload, timeout=120)
+        response.raise_for_status()
+        response_data = response.json()
         self._log("✅ Generation complete.")
 
-        # Parse outputs
+        # Parse outputs from REST API JSON response
         all_images = []
-        if getattr(response, "candidates", None):
-            for ci, cand in enumerate(response.candidates):
-                if not getattr(cand, "content", None):
-                    continue
-                for pi, part in enumerate(cand.content.parts or []):
-                    # Text logs
-                    if getattr(part, "text", None):
-                        self._log(part.text)
+        candidates = response_data.get("candidates", [])
+        for cand in candidates:
+            content = cand.get("content", {})
+            parts_list = content.get("parts", [])
+            for part in parts_list:
+                # Text logs
+                if "text" in part:
+                    self._log(part["text"])
 
-                    # Inline images
-                    if getattr(part, "inline_data", None):
-                        mime = getattr(part.inline_data, "mime_type", "image/png")
-                        data = getattr(part.inline_data, "data", b"")
-                        if mime.startswith("image/") and data:
-                            art = self._create_image_artifact(data, mime)
-                            all_images.append(art)
+                # Inline images
+                if "inlineData" in part or "inline_data" in part:
+                    inline_data = part.get("inlineData") or part.get("inline_data", {})
+                    mime = inline_data.get("mimeType") or inline_data.get("mime_type", "image/png")
+                    data_b64 = inline_data.get("data", "")
+                    if mime.startswith("image/") and data_b64:
+                        # Decode base64
+                        data = base64.b64decode(data_b64)
+                        art = self._create_image_artifact(data, mime)
+                        all_images.append(art)
 
         # Save all images to outputs
         if all_images:
@@ -392,14 +445,15 @@ class GeminiImageGenerator(ControlNode):
     def _process(self):
         # Clear outputs at the start of each run
         self._reset_outputs()
-        if not GOOGLE_INSTALLED:
-            self._log("ERROR: Missing Google AI libraries. Install `google-genai` and `google-cloud-aiplatform`.")
+        if not GOOGLE_AUTH_INSTALLED:
+            self._log("ERROR: Missing Google auth libraries. Install `google-auth`.")
             return
 
         # Inputs
         prompt = self.get_parameter_value("prompt")
         model = self.get_parameter_value("model")
         location = self.get_parameter_value("location")
+        aspect_ratio = self.get_parameter_value("aspect_ratio")
 
         input_images = self.get_parameter_value("input_images")
         input_files = self.get_parameter_value("input_files")
@@ -422,27 +476,34 @@ class GeminiImageGenerator(ControlNode):
             credentials = None
 
             if service_account_file and os.path.exists(service_account_file):
-                os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_file
                 project_id = self._get_project_id(service_account_file)
-                credentials = service_account.Credentials.from_service_account_file(service_account_file)
+                credentials = service_account.Credentials.from_service_account_file(
+                    service_account_file,
+                    scopes=['https://www.googleapis.com/auth/cloud-platform']
+                )
                 self._log(f"🔑 Authenticated with service account for project '{project_id}'.")
             else:
                 project_id = self.get_config_value(service=self.SERVICE, value=self.PROJECT_ID)
                 credentials_json = self.get_config_value(service=self.SERVICE, value=self.CREDENTIALS_JSON)
                 if credentials_json:
                     cred_dict = json.loads(credentials_json)
-                    credentials = service_account.Credentials.from_service_account_info(cred_dict)
+                    credentials = service_account.Credentials.from_service_account_info(
+                        cred_dict,
+                        scopes=['https://www.googleapis.com/auth/cloud-platform']
+                    )
+                    project_id = cred_dict.get("project_id")
                     self._log(f"🔑 Authenticated with JSON credentials for project '{project_id}'.")
                 else:
-                    self._log("⚠️ Using Application Default Credentials (e.g., gcloud auth). Ensure ADC has Vertex access.")
+                    raise ValueError("No credentials provided. Configure service account file or credentials JSON.")
 
-            # Init Vertex + client
-            aiplatform.init(project=project_id, location=location, credentials=credentials)
-            client = genai.Client(vertexai=True, project=project_id, location=location)
+            if not project_id:
+                raise ValueError("Could not determine project ID from credentials.")
 
             self._log("🚀 Starting Gemini image generation...")
             self._generate_and_process(
-                client=client,
+                credentials=credentials,
+                project_id=project_id,
+                location=location,
                 model=model,
                 prompt=prompt,
                 input_images=input_images,
@@ -450,6 +511,7 @@ class GeminiImageGenerator(ControlNode):
                 temperature=temperature,
                 top_p=top_p,
                 candidate_count=candidate_count,
+                aspect_ratio=aspect_ratio,
             )
 
         except Exception as e:

@@ -8,9 +8,8 @@ authors = [
 readme = "README.md"
 requires-python = "~=3.12"
 dependencies = [
-    "google-cloud-aiplatform>=1.110.0",
+    "google-auth>=2.0.0",
     "google-cloud-storage>=2.19.0",
-    "google-generativeai>=0.8.5",
     "griptape-nodes",
     "requests>=2.32.3",
 ]
