@@ -1,14 +1,10 @@
 import base64
 import json
 import os
-import urllib.parse
 from pathlib import Path
 
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes  # type: ignore[reportMissingImports]
 from griptape_nodes.traits.slider import Slider
-
-from griptape.artifacts import AudioUrlArtifact, VideoUrlArtifact
-
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
@@ -17,7 +13,6 @@ from griptape_nodes.traits.options import Options
 # Attempt to import Google libraries
 try:
     import hashlib
-    import time
 
     from google import genai
     from google.cloud import aiplatform, storage
@@ -26,6 +21,14 @@ try:
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
+
+# Attempt to import requests for downloading from URLs
+try:
+    import requests
+
+    REQUESTS_INSTALLED = True
+except ImportError:
+    REQUESTS_INSTALLED = False
 
 
 class BaseAnalyzeMedia(ControlNode):
@@ -168,12 +171,6 @@ class BaseAnalyzeMedia(ControlNode):
         """Append a message to the logs output parameter."""
         self.append_value_to_parameter("logs", message + "\n")
 
-    def _raise_file_not_found(self, file_path: str) -> None:
-        """Raise FileNotFoundError with logging."""
-        msg = f"Local file not found: {file_path}"
-        self._log(msg)
-        raise FileNotFoundError(msg)
-
     def _get_project_id(self, service_account_file: str) -> str:
         """Read the project_id from the service account JSON file."""
         if not Path(service_account_file).exists():
@@ -258,12 +255,23 @@ class BaseAnalyzeMedia(ControlNode):
         # Direct bytes or other format
         return media_artifact.value
 
-    def _get_localhost_file_path(self, url: str) -> Path:
-        """Convert localhost URL to local file path."""
-        parsed_url = urllib.parse.urlparse(url)
-        filename = parsed_url.path.split("/")[-1].split("?")[0]  # Remove query params
-        static_files_path = GriptapeNodes.ConfigManager().workspace_path / "static_files"
-        return static_files_path / filename
+    def _download_from_localhost_url(self, url: str) -> bytes:
+        """Download file from localhost URL via HTTP request."""
+        if not REQUESTS_INSTALLED:
+            msg = "The 'requests' library is required to download files from localhost URLs."
+            self._log(msg)
+            raise ImportError(msg)
+        
+        self._log(f"📥 Downloading from localhost URL: {url}")
+        try:
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            self._log(f"✅ Downloaded {len(response.content)} bytes from localhost")
+            return response.content
+        except requests.exceptions.RequestException as e:
+            msg = f"Failed to download from localhost URL {url}: {e}"
+            self._log(msg)
+            raise RuntimeError(msg)
 
     def _generate_filename(self, media_artifact: any, content_hash: str) -> str:
         """Generate filename with original name + content hash."""
@@ -320,15 +328,8 @@ class BaseAnalyzeMedia(ControlNode):
             return {"type": "url", "value": source["url"]}
 
         if source["type"] == "localhost_url":
-            # Localhost URL - read file and upload to GCS
-            local_path = self._get_localhost_file_path(source["url"])
-
-            if not local_path.exists():
-                self._raise_file_not_found(local_path)
-
-            self._log(f"📁 Reading local file: {local_path}")
-            with local_path.open("rb") as f:
-                media_data = f.read()
+            # Localhost URL - download via HTTP and upload to GCS
+            media_data = self._download_from_localhost_url(source["url"])
 
             # Generate filename and upload to GCS
             content_hash = hashlib.md5(media_data).hexdigest()
@@ -442,7 +443,7 @@ class BaseAnalyzeMedia(ControlNode):
             credentials = None
 
             # Try service account file first
-            service_account_file = self.get_config_value(service=self.SERVICE, value=self.SERVICE_ACCOUNT_FILE_PATH)
+            service_account_file = GriptapeNodes.SecretsManager().get_secret(self.SERVICE_ACCOUNT_FILE_PATH)
 
             if service_account_file and Path(service_account_file).exists():
                 self._log("🔑 Using service account file for authentication.")
@@ -457,8 +458,8 @@ class BaseAnalyzeMedia(ControlNode):
             else:
                 # Fall back to individual credentials from settings
                 self._log("🔑 Service account file not found, using individual credentials from settings.")
-                project_id = self.get_config_value(service=self.SERVICE, value=self.PROJECT_ID)
-                credentials_json = self.get_config_value(service=self.SERVICE, value=self.CREDENTIALS_JSON)
+                project_id = GriptapeNodes.SecretsManager().get_secret(self.PROJECT_ID)
+                credentials_json = GriptapeNodes.SecretsManager().get_secret(self.CREDENTIALS_JSON)
 
                 if not project_id:
                     raise ValueError(
