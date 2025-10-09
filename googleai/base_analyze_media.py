@@ -1,18 +1,15 @@
 import base64
 import json
+import logging
 import os
 import urllib.parse
 from pathlib import Path
 
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes  # type: ignore[reportMissingImports]
-from griptape_nodes.traits.slider import Slider
-
-from griptape.artifacts import AudioUrlArtifact, VideoUrlArtifact
-
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes  # type: ignore[reportMissingImports]
 from griptape_nodes.traits.options import Options
+from griptape_nodes.traits.slider import Slider
 
 # Attempt to import Google libraries
 try:
@@ -27,6 +24,8 @@ try:
 except ImportError:
     GOOGLE_INSTALLED = False
 
+logger = logging.getLogger("griptape_nodes_library_googleai")
+
 
 class BaseAnalyzeMedia(ControlNode):
     # Service constants for configuration
@@ -34,6 +33,7 @@ class BaseAnalyzeMedia(ControlNode):
     SERVICE_ACCOUNT_FILE_PATH = "GOOGLE_SERVICE_ACCOUNT_FILE_PATH"
     PROJECT_ID = "GOOGLE_CLOUD_PROJECT_ID"
     CREDENTIALS_JSON = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
+    CLOUD_BUCKET_NAME = "GOOGLE_CLOUD_BUCKET_NAME"
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -171,6 +171,7 @@ class BaseAnalyzeMedia(ControlNode):
     def _raise_file_not_found(self, file_path: str) -> None:
         """Raise FileNotFoundError with logging."""
         msg = f"Local file not found: {file_path}"
+        logger.error(msg)
         self._log(msg)
         raise FileNotFoundError(msg)
 
@@ -178,6 +179,7 @@ class BaseAnalyzeMedia(ControlNode):
         """Read the project_id from the service account JSON file."""
         if not Path(service_account_file).exists():
             msg = f"Service account file not found: {service_account_file}"
+            logger.error(msg)
             self._log(msg)
             raise FileNotFoundError(msg)
 
@@ -187,6 +189,7 @@ class BaseAnalyzeMedia(ControlNode):
         project_id = service_account_info.get("project_id")
         if not project_id:
             msg = "No 'project_id' found in the service account file."
+            logger.error(msg)
             self._log(msg)
             raise ValueError(msg)
 
@@ -198,7 +201,15 @@ class BaseAnalyzeMedia(ControlNode):
         """Upload media file to GCS bucket and return the GCS URI."""
         try:
             # Use the bucket name that matches your setup
-            bucket_name = "griptape-nodes"
+            griptape_cloud_bucket_name = GriptapeNodes.ConfigManager().get_config_value(
+                f"{self.SERVICE}.{self.CLOUD_BUCKET_NAME}"
+            )
+            if not griptape_cloud_bucket_name:
+                msg = "GOOGLE_CLOUD_BUCKET_NAME is not set in the library settings. Using default bucket name 'griptape-nodes'."
+                logger.warning(msg)
+                bucket_name = "griptape-nodes"
+            else:
+                bucket_name = griptape_cloud_bucket_name
 
             # Initialize storage client
             storage_client = storage.Client(project=project_id, credentials=credentials)
@@ -262,8 +273,10 @@ class BaseAnalyzeMedia(ControlNode):
         """Convert localhost URL to local file path."""
         parsed_url = urllib.parse.urlparse(url)
         filename = parsed_url.path.split("/")[-1].split("?")[0]  # Remove query params
-        static_files_path = GriptapeNodes.ConfigManager().workspace_path / "static_files"
-        return static_files_path / filename
+        static_files_path = GriptapeNodes.StaticFilesManager()._get_static_files_directory()
+        full_path = GriptapeNodes.ConfigManager().workspace_path / static_files_path
+
+        return full_path / filename
 
     def _generate_filename(self, media_artifact: any, content_hash: str) -> str:
         """Generate filename with original name + content hash."""
@@ -442,8 +455,7 @@ class BaseAnalyzeMedia(ControlNode):
             credentials = None
 
             # Try service account file first
-            service_account_file = self.get_config_value(service=self.SERVICE, value=self.SERVICE_ACCOUNT_FILE_PATH)
-
+            service_account_file = GriptapeNodes.SecretsManager().get_secret(f"{self.SERVICE_ACCOUNT_FILE_PATH}")
             if service_account_file and Path(service_account_file).exists():
                 self._log("🔑 Using service account file for authentication.")
                 try:
@@ -457,13 +469,12 @@ class BaseAnalyzeMedia(ControlNode):
             else:
                 # Fall back to individual credentials from settings
                 self._log("🔑 Service account file not found, using individual credentials from settings.")
-                project_id = self.get_config_value(service=self.SERVICE, value=self.PROJECT_ID)
-                credentials_json = self.get_config_value(service=self.SERVICE, value=self.CREDENTIALS_JSON)
+                project_id = GriptapeNodes.SecretsManager().get_secret(f"{self.PROJECT_ID}")
+                credentials_json = GriptapeNodes.SecretsManager().get_secret(f"{self.CREDENTIALS_JSON}")
 
                 if not project_id:
-                    raise ValueError(
-                        "❌ GOOGLE_CLOUD_PROJECT_ID must be set in library settings when not using a service account file."
-                    )
+                    msg = "❌ GOOGLE_CLOUD_PROJECT_ID must be set in library settings when not using a service account file."
+                    raise ValueError(msg)
 
                 if credentials_json:
                     try:
