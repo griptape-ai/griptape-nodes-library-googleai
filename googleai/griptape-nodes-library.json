@@ -4,11 +4,17 @@
     "settings": [
         {
             "description": "Google Cloud authentication settings for AI services",
-            "category": "nodes.GoogleAI",
+            "category": "GoogleAI",
             "contents": {
                 "GOOGLE_SERVICE_ACCOUNT_FILE_PATH": "$GOOGLE_SERVICE_ACCOUNT_FILE_PATH",
                 "GOOGLE_CLOUD_PROJECT_ID": "$GOOGLE_CLOUD_PROJECT_ID",
-                "GOOGLE_APPLICATION_CREDENTIALS_JSON": "$GOOGLE_APPLICATION_CREDENTIALS_JSON"
+                "GOOGLE_APPLICATION_CREDENTIALS_JSON": "$GOOGLE_APPLICATION_CREDENTIALS_JSON",
+                "secrets_to_register": [
+                    "GOOGLE_SERVICE_ACCOUNT_FILE_PATH",
+                    "GOOGLE_CLOUD_PROJECT_ID",
+                    "GOOGLE_APPLICATION_CREDENTIALS_JSON"
+                  ]
+                
             }
         }
     ],
