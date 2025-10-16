@@ -45,6 +45,28 @@ class VeoImageToVideoGenerator(ControlNode):
             )
         )
 
+        # Optional last frame (only for 3.1 models)
+        self.add_parameter(
+            Parameter(
+                name="last_frame",
+                input_types=["ImageArtifact", "ImageUrlArtifact"],
+                type="ImageArtifact",
+                tooltip="Optional: Final frame for interpolation (Veo 3.1 only).",
+                ui_options={
+                    "placeholder_text": "Optional last frame for Veo 3.1 interpolation",
+                    "hide_when": {
+                        "model": [
+                            "veo-3.0-generate-001",
+                            "veo-3.0-fast-generate-001",
+                            "veo-3.0-generate-preview",
+                            "veo-3.0-fast-generate-preview",
+                        ]
+                    },
+                },
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            )
+        )
+
         self.add_parameter(
             Parameter(
                 name="prompt",
@@ -60,10 +82,11 @@ class VeoImageToVideoGenerator(ControlNode):
                 name="model",
                 type="str",
                 tooltip="The Veo model to use for generation.",
-                default_value="veo-3.0-generate-001",
+                default_value="veo-3.1-generate-preview",
                 traits={
                     Options(
                         choices=[
+                            "veo-3.1-generate-preview",
                             "veo-3.0-generate-001",
                             "veo-3.0-fast-generate-001",
                             "veo-3.0-generate-preview",
@@ -359,6 +382,22 @@ class VeoImageToVideoGenerator(ControlNode):
                 elif hasattr(video.video, "uri") and video.video.uri:
                     self._log(f"📹 Video {i + 1} has GCS URI. Downloading...")
                     video_bytes = self._download_from_gcs(video.video.uri, final_project_id, credentials)
+                # Fallback to Files API (Veo 3.1 returns a File handle)
+                elif hasattr(video, "video") and video.video is not None:
+                    try:
+                        self._log(f"📦 Video {i + 1} is a file handle. Downloading via Files API...")
+                        # Download the file handle so it can be saved locally
+                        client.files.download(file=video.video)
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
+                            tmp_path = tmp_file.name
+                        # Save the downloaded handle to disk, then read bytes
+                        video.video.save(tmp_path)
+                        with open(tmp_path, "rb") as f:
+                            video_bytes = f.read()
+                        os.remove(tmp_path)
+                    except Exception as e:
+                        self._log(f"❌ Failed to download file handle for video {i + 1}: {e}")
 
                 if video_bytes:
                     filename = f"veo_image_to_video_{int(time.time())}_{i + 1}.mp4"
@@ -405,6 +444,7 @@ class VeoImageToVideoGenerator(ControlNode):
 
         # Get input values
         image_artifact = self.get_parameter_value("image")
+        last_frame_artifact = self.get_parameter_value("last_frame")
         prompt = self.get_parameter_value("prompt")
         negative_prompt = self.get_parameter_value("negative_prompt")
         model = self.get_parameter_value("model")
@@ -478,20 +518,36 @@ class VeoImageToVideoGenerator(ControlNode):
             # Convert image to base64
             base64_data, mime_type = self._get_image_base64(image_artifact)
 
+            # Optional: last frame for 3.1 models
+            base64_last_frame = None
+            mime_last_frame = None
+            if last_frame_artifact and isinstance(model, str) and model.startswith("veo-3.1"):
+                self._log("🪄 Using last_frame for Veo 3.1 interpolation...")
+                base64_last_frame, mime_last_frame = self._get_image_base64(last_frame_artifact)
+
             self._log(f"🎬 Generating video from image with prompt: '{prompt or 'No prompt provided'}'")
 
             # Build the API call parameters
+            config_kwargs = {
+                "aspect_ratio": aspect_ratio,
+                "resolution": resolution,
+                "number_of_videos": num_videos,
+            }
+
+            # Only Veo 3.1 supports last_frame
+            if base64_last_frame and mime_last_frame and isinstance(model, str) and model.startswith("veo-3.1"):
+                config_kwargs["last_frame"] = Image(
+                    image_bytes=base64_last_frame,
+                    mime_type=mime_last_frame,
+                )
+
             api_params = {
                 "model": model,
                 "image": Image(
                     image_bytes=base64_data,
                     mime_type=mime_type,
                 ),
-                "config": GenerateVideosConfig(
-                    aspect_ratio=aspect_ratio,
-                    resolution=resolution,
-                    number_of_videos=num_videos,
-                ),
+                "config": GenerateVideosConfig(**config_kwargs),
             }
 
             # Add prompt if provided
