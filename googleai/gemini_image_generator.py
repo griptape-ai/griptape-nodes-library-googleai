@@ -28,6 +28,13 @@ try:
 except Exception:
     REQUESTS_INSTALLED = False
 
+try:
+    from PIL import Image as PILImage
+    import io as _io
+    PIL_INSTALLED = True
+except Exception:
+    PIL_INSTALLED = False
+
 
 class GeminiImageGenerator(ControlNode):
     """
@@ -187,6 +194,7 @@ class GeminiImageGenerator(ControlNode):
 
     # ---------- Utilities ----------
     def _log(self, message: str):
+        print(message)
         self.append_value_to_parameter("logs", message + "\n")
 
     def _reset_outputs(self) -> None:
@@ -249,6 +257,53 @@ class GeminiImageGenerator(ControlNode):
             return data, mime
         raise TypeError("Unsupported file artifact type.")
 
+    def _shrink_image_to_limit(self, image_bytes: bytes, mime_type: str, byte_limit: int) -> tuple[bytes, str]:
+        """Best-effort shrink using Pillow to ensure <= byte_limit. Returns (bytes, mime)."""
+        if not PIL_INSTALLED:
+            self._log("ℹ️ Pillow not installed; cannot downscale large images. Install 'Pillow' to enable.")
+            return image_bytes, mime_type
+
+        try:
+            img = PILImage.open(_io.BytesIO(image_bytes))
+            img = img.convert("RGBA") if img.mode in ("P", "LA") else img
+            # Prefer WEBP for better compression and alpha support
+            target_format = "WEBP"
+            target_mime = "image/webp"
+
+            orig_w, orig_h = img.size
+            scales = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5]
+            qualities = [90, 85, 80, 75, 70, 60, 50]
+
+            for scale in scales:
+                w = max(1, int(orig_w * scale))
+                h = max(1, int(orig_h * scale))
+                resized = img.resize((w, h)) if (w, h) != (orig_w, orig_h) else img
+                for q in qualities:
+                    buf = _io.BytesIO()
+                    save_params = {"format": target_format, "quality": q}
+                    # lossless false by default; ensure efficient encoding
+                    if target_format == "WEBP":
+                        save_params.update({"method": 6})
+                    resized.save(buf, **save_params)
+                    data = buf.getvalue()
+                    if len(data) <= byte_limit:
+                        return data, target_mime
+            # As a last resort, try JPEG without alpha
+            rgb = img.convert("RGB")
+            for scale in scales:
+                w = max(1, int(orig_w * scale))
+                h = max(1, int(orig_h * scale))
+                resized = rgb.resize((w, h)) if (w, h) != (orig_w, orig_h) else rgb
+                for q in qualities:
+                    buf = _io.BytesIO()
+                    resized.save(buf, format="JPEG", quality=q, optimize=True, progressive=True)
+                    data = buf.getvalue()
+                    if len(data) <= byte_limit:
+                        return data, "image/jpeg"
+        except Exception as e:
+            self._log(f"⚠️ Downscale failed: {e}")
+        return image_bytes, mime_type
+
     def _get_access_token(self, credentials) -> str:
         """Get access token from credentials."""
         if not credentials.valid:
@@ -285,13 +340,20 @@ class GeminiImageGenerator(ControlNode):
                 if len(b) > self.MAX_IMAGE_BYTES:
                     img_name = getattr(img_art, 'name', f'image_{img_idx + 1}')
                     size_mb = len(b) / (1024 * 1024)
-                    error_msg = f"❌ Image '{img_name}' size {size_mb:.1f} MB exceeds maximum allowed size of 7 MB"
-                    self._log(error_msg)
-                    raise ValueError(error_msg)
-                # REST API format: inline_data with base64
+                    self._log(f"ℹ️ Image '{img_name}' is {size_mb:.1f} MB; attempting to downscale to ≤ 7 MB...")
+                    b2, mime2 = self._shrink_image_to_limit(b, mime, self.MAX_IMAGE_BYTES)
+                    if len(b2) <= self.MAX_IMAGE_BYTES:
+                        new_mb = len(b2) / (1024 * 1024)
+                        self._log(f"✅ Downscaled '{img_name}' to {new_mb:.2f} MB ({mime2}).")
+                        b, mime = b2, mime2
+                    else:
+                        error_msg = f"❌ Image '{img_name}' remains too large after downscaling."
+                        self._log(error_msg)
+                        raise ValueError(error_msg)
+                # REST API format: inlineData with base64 (Vertex v1)
                 parts.append({
-                    "inline_data": {
-                        "mime_type": mime,
+                    "inlineData": {
+                        "mimeType": mime,
                         "data": base64.b64encode(b).decode('utf-8')
                     }
                 })
@@ -321,10 +383,10 @@ class GeminiImageGenerator(ControlNode):
                     error_msg = f"❌ Document '{doc_name}' size {size_mb:.1f} MB exceeds maximum allowed size of 50 MB"
                     self._log(error_msg)
                     raise ValueError(error_msg)
-                # REST API format: inline_data with base64
+                # REST API format: inlineData with base64 (Vertex v1)
                 parts.append({
-                    "inline_data": {
-                        "mime_type": mime,
+                    "inlineData": {
+                        "mimeType": mime,
                         "data": base64.b64encode(b).decode('utf-8')
                     }
                 })
@@ -358,10 +420,12 @@ class GeminiImageGenerator(ControlNode):
 
         # Build REST API payload
         payload = {
-            "contents": {
-                "role": "USER",
-                "parts": parts
-            },
+            "contents": [
+                {
+                    "role": "USER",
+                    "parts": parts
+                }
+            ],
             "generation_config": {
                 "temperature": eff_temperature,
                 "topP": eff_top_p,
@@ -378,6 +442,38 @@ class GeminiImageGenerator(ControlNode):
         self._log(f"  • Top-p: {eff_top_p}")
         self._log(f"  • Candidate count: {eff_candidates}")
         self._log(f"  • Aspect ratio: {aspect_ratio}")
+        
+        # Debug payload (redacted to avoid logging raw base64)
+        try:
+            contents_preview = []
+            for msg in payload.get("contents", []):
+                preview_parts = []
+                for part in msg.get("parts", []):
+                    if "inlineData" in part:
+                        inline = part.get("inlineData", {})
+                        data_str = inline.get("data", "")
+                        preview_parts.append({
+                            "inlineData": {
+                                "mimeType": inline.get("mimeType"),
+                                "data": f"[{len(data_str)} chars]"
+                            }
+                        })
+                    elif "text" in part:
+                        text_val = part.get("text", "")
+                        preview_parts.append({
+                            "text": (text_val[:200] + ("..." if len(text_val) > 200 else ""))
+                        })
+                contents_preview.append({
+                    "role": msg.get("role"),
+                    "parts": preview_parts
+                })
+            payload_preview = {
+                "contents": contents_preview,
+                "generation_config": payload.get("generation_config")
+            }
+            self._log("📦 Payload preview:\n" + json.dumps(payload_preview, indent=2))
+        except Exception as e:
+            self._log(f"⚠️ Failed to build payload preview: {e}")
         
         # Make REST API call
         access_token = self._get_access_token(credentials)
