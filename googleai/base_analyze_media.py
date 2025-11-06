@@ -128,7 +128,7 @@ class BaseAnalyzeMedia(ControlNode):
                 name="output",
                 type="str",
                 tooltip="The AI's response describing or answering questions about the media.",
-                ui_options={"multiline": True, "placeholder_text": "AI response will appear here"},
+                ui_options={"multiline": True, "placeholder_text": "AI response will appear here (new)"},
                 allowed_modes={ParameterMode.OUTPUT},
             )
         )
@@ -328,9 +328,12 @@ class BaseAnalyzeMedia(ControlNode):
         source = self._get_media_source(media_artifact)
 
         if source["type"] == "public_url":
-            # Public URL - use directly
+            # Public URL - use directly with detected MIME type
             self._log(f"🌐 Using public URL: {source['url']}")
-            return {"type": "url", "value": source["url"]}
+            # Extract filename from URL to determine MIME type
+            url_path = source["url"].split("?")[0]  # Remove query params
+            mime_type = self._get_mime_type(url_path)
+            return {"type": "url", "value": source["url"], "mime_type": mime_type}
 
         if source["type"] == "localhost_url":
             # Localhost URL - read file and upload to GCS
@@ -390,8 +393,15 @@ class BaseAnalyzeMedia(ControlNode):
             self._log(f"📁 Adding media item {i + 1}: {media_source['type']}")
 
             if media_source["type"] == "url":
-                # Public URL - use directly
-                contents.append({"file_data": {"file_uri": media_source["value"]}})
+                # Public URL - use directly with MIME type
+                contents.append(
+                    {
+                        "file_data": {
+                            "file_uri": media_source["value"],
+                            "mime_type": media_source.get("mime_type", "application/octet-stream"),
+                        }
+                    }
+                )
             else:  # GCS URI
                 # GCS URI - use directly with MIME type
                 contents.append(
