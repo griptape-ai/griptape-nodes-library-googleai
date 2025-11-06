@@ -63,7 +63,7 @@ class VeoImageToVideoGenerator(ControlNode):
                         ]
                     },
                 },
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT},
             )
         )
 
