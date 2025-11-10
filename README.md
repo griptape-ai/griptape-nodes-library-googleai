@@ -15,6 +15,49 @@ This library provides Griptape Nodes for interacting with Google AI services, in
 
 ______________________________________________________________________
 
+## 📦 Installation
+
+### Prerequisites
+
+- [Griptape Nodes](https://github.com/griptape-ai/griptape-nodes) installed and running
+- Google Cloud account with billing enabled
+- Google Cloud project with Vertex AI API enabled
+
+### Install the Library
+
+1. **Download the library files** to your Griptape Nodes workspace directory:
+   ```bash
+   # Navigate to your Griptape Nodes workspace directory
+   cd `gtn config show workspace_directory`
+   
+   # Clone or download this library
+   git clone https://github.com/your-username/griptape-nodes-library-googleai.git
+   ```
+
+2. **Add the library** in the Griptape Nodes Editor:
+   * Open the Settings menu and navigate to the *Libraries* settings
+   * Click on *+ Add Library* at the bottom of the settings panel
+   * Enter the path to the library JSON file: **your Griptape Nodes Workspace directory**`/griptape-nodes-library-googleai/googleai/griptape_nodes_library.json`
+   * You can check your workspace directory with `gtn config show workspace_directory`
+   * Close the Settings Panel
+   * Click on *Refresh Libraries*
+
+3. **Verify installation** by checking that all Google AI nodes appear in your Griptape Nodes interface:
+   - **Video/Google AI category**: Veo Text-To-Video, Veo Image-To-Video, Multi Video Display
+   - **Image/Google AI category**: Imagen Image Generator
+   - **Audio/Google AI category**: Lyria Audio Generator, Multi Audio Display
+   - **Data/Google AI category**: Describe Media, Identify Timecodes
+
+### Dependencies
+
+This library automatically installs the following dependencies:
+- `google-cloud-aiplatform`: For Vertex AI model access (Veo, Imagen, Lyria)
+- `google-generativeai`: For Gemini model access (Describe Media, Identify Timecodes)
+- `google-cloud-storage`: For optional media file storage and conversation continuity
+- `requests`: For HTTP requests and file handling
+
+______________________________________________________________________
+
 ## 1. Authentication & Setup
 
 This library uses **library-level settings** for authentication, making it easy to configure once and use across all Google AI nodes.
