@@ -378,9 +378,9 @@ class LyriaAudioGenerator(ControlNode):
         try:
             final_project_id = None
             credentials = None
-            
+
             # Try service account file first
-            service_account_file = self.get_config_value(service=self.SERVICE, value=self.SERVICE_ACCOUNT_FILE_PATH)
+            service_account_file = GriptapeNodes.SecretsManager().get_secret(f"{self.SERVICE_ACCOUNT_FILE_PATH}")
             
             if service_account_file and os.path.exists(service_account_file):
                 self._log("🔑 Using service account file for authentication.")
@@ -399,8 +399,8 @@ class LyriaAudioGenerator(ControlNode):
             else:
                 # Fall back to individual credentials from settings
                 self._log("🔑 Service account file not found, using individual credentials from settings.")
-                project_id = self.get_config_value(service=self.SERVICE, value=self.PROJECT_ID)
-                credentials_json = self.get_config_value(service=self.SERVICE, value=self.CREDENTIALS_JSON)
+                project_id = GriptapeNodes.SecretsManager().get_secret(f"{self.PROJECT_ID}")
+                credentials_json = GriptapeNodes.SecretsManager().get_secret(f"{self.CREDENTIALS_JSON}")
                 
                 if not project_id:
                     raise ValueError("❌ GOOGLE_CLOUD_PROJECT_ID must be set in library settings when not using a service account file.")
