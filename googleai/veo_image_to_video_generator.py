@@ -498,25 +498,29 @@ class VeoImageToVideoGenerator(ControlNode):
                 project_id = self.get_config_value(service=self.SERVICE, value=self.PROJECT_ID)
                 credentials_json = self.get_config_value(service=self.SERVICE, value=self.CREDENTIALS_JSON)
 
-                if not project_id:
-                    raise ValueError(
-                        "❌ GOOGLE_CLOUD_PROJECT_ID must be set in library settings when not using a service account file."
-                    )
-
                 if credentials_json:
                     try:
                         import json
 
                         cred_dict = json.loads(credentials_json)
                         credentials = service_account.Credentials.from_service_account_info(cred_dict)
-                        self._log("✅ JSON credentials authentication successful.")
+                        final_project_id = cred_dict.get("project_id") or project_id
+                        if not final_project_id:
+                            raise ValueError(
+                                "❌ Could not determine project ID. Provide GOOGLE_CLOUD_PROJECT_ID or include 'project_id' in GOOGLE_APPLICATION_CREDENTIALS_JSON."
+                            )
+                        self._log(f"✅ JSON credentials authentication successful for project: {final_project_id}")
                     except Exception as e:
                         self._log(f"❌ JSON credentials authentication failed: {e}")
                         raise
                 else:
+                    # No JSON creds; rely on provided project_id and ADC
+                    if not project_id:
+                        raise ValueError(
+                            "❌ Provide GOOGLE_CLOUD_PROJECT_ID or GOOGLE_APPLICATION_CREDENTIALS_JSON containing a 'project_id'."
+                        )
                     self._log("🔑 Using Application Default Credentials (e.g., gcloud auth).")
-
-                final_project_id = project_id
+                    final_project_id = project_id
 
             self._log(f"Project ID: {final_project_id}")
             self._log("Initializing Vertex AI...")
