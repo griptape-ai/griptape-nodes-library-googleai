@@ -567,7 +567,7 @@ class GeminiImageGenerator(ControlNode):
 
         try:
             # Auth
-            service_account_file = self.get_config_value(service=self.SERVICE, value=self.SERVICE_ACCOUNT_FILE_PATH)
+            service_account_file = GriptapeNodes.SecretsManager().get_secret(f"{self.SERVICE_ACCOUNT_FILE_PATH}")
             project_id = None
             credentials = None
 
@@ -579,8 +579,8 @@ class GeminiImageGenerator(ControlNode):
                 )
                 self._log(f"🔑 Authenticated with service account for project '{project_id}'.")
             else:
-                project_id = self.get_config_value(service=self.SERVICE, value=self.PROJECT_ID)
-                credentials_json = self.get_config_value(service=self.SERVICE, value=self.CREDENTIALS_JSON)
+                project_id = GriptapeNodes.SecretsManager().get_secret(f"{self.PROJECT_ID}")
+                credentials_json = GriptapeNodes.SecretsManager().get_secret(f"{self.CREDENTIALS_JSON}")
                 if credentials_json:
                     cred_dict = json.loads(credentials_json)
                     credentials = service_account.Credentials.from_service_account_info(
