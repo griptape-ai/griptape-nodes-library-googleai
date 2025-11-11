@@ -231,11 +231,14 @@ The core video generation capability. Takes a text prompt and configuration opti
 
 **File**: `veo_image_to_video_generator.py`
 
-Converts images into videos using Google's Veo model. Uses efficient base64 encoding for image input.
+Converts images into videos using Google's Veo model. Uses Vertex REST `predictLongRunning` with efficient base64 encoding and supports model-driven options.
 
 **Key Features**:
 
 - Supports ImageArtifact and ImageUrlArtifact inputs
+- Model-driven UI (Veo 2.0/3.0/3.1)
+- Optional last frame interpolation (models that support it)
+- Optional reference images (asset/style) with per-model validation
 - Optional animation prompts
 - Negative prompt support
 - Seed control for reproducibility

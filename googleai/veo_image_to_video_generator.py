@@ -5,7 +5,7 @@ import time
 import requests
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode, ParameterList
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
@@ -45,7 +45,7 @@ class VeoImageToVideoGenerator(ControlNode):
             )
         )
 
-        # Optional last frame (only for 3.1 models)
+        # Optional last frame (only for models that support it)
         self.add_parameter(
             Parameter(
                 name="last_frame",
@@ -87,13 +87,44 @@ class VeoImageToVideoGenerator(ControlNode):
                     Options(
                         choices=[
                             "veo-3.1-generate-preview",
+                            "veo-3.1-fast-generate-preview",
                             "veo-3.0-generate-001",
                             "veo-3.0-fast-generate-001",
                             "veo-3.0-generate-preview",
                             "veo-3.0-fast-generate-preview",
+                            "veo-2.0-generate-001",
+                            "veo-2.0-generate-exp",
                         ]
                     )
                 },
+                allowed_modes={ParameterMode.PROPERTY},
+            )
+        )
+
+        # Reference images (list) supported by 2.0-exp and 3.1-preview
+        self.add_parameter(
+            ParameterList(
+                name="reference_images",
+                tooltip="Up to 3 reference images (subject/style depending on model).",
+                input_types=[
+                    "ImageArtifact",
+                    "ImageUrlArtifact",
+                    "list[ImageArtifact]",
+                    "list[ImageUrlArtifact]",
+                ],
+                default_value=[],
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={"expander": True, "display_name": "REFERENCE_IMAGES"},
+            )
+        )
+
+        # Reference type (asset or style). 3.1 doesn't support 'style'.
+        self.add_parameter(
+            Parameter(
+                name="reference_type",
+                type="str",
+                tooltip="Reference type for reference images (asset|style). 3.1: asset only.",
+                default_value="asset",
                 allowed_modes={ParameterMode.PROPERTY},
             )
         )
@@ -148,8 +179,57 @@ class VeoImageToVideoGenerator(ControlNode):
                 default_value="720p",
                 traits=[Options(choices=["720p", "1080p"])],
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={"hide_when": {"model": ["veo-2.0-generate-001", "veo-2.0-generate-exp"]}},
             )
         )
+
+        # Advanced parameters group
+        with ParameterGroup(name="Advanced") as adv_group:
+            Parameter(
+                name="compression_quality",
+                type="str",
+                tooltip="Compression quality hint.",
+                allowed_modes={ParameterMode.PROPERTY},
+            )
+            Parameter(
+                name="duration_seconds",
+                type="int",
+                tooltip="Target video duration in seconds.",
+                allowed_modes={ParameterMode.PROPERTY, ParameterMode.INPUT},
+            )
+            Parameter(
+                name="enhance_prompt",
+                type="bool",
+                tooltip="Let the model enhance the prompt.",
+                allowed_modes={ParameterMode.PROPERTY},
+            )
+            Parameter(
+                name="generate_audio",
+                type="bool",
+                tooltip="Generate audio track with the video (if supported).",
+                allowed_modes={ParameterMode.PROPERTY},
+            )
+            Parameter(
+                name="person_generation",
+                type="str",
+                tooltip="Person generation policy (e.g., 'allow' or 'deny').",
+                allowed_modes={ParameterMode.PROPERTY},
+            )
+            Parameter(
+                name="resize_mode",
+                type="str",
+                tooltip="Resize mode (Veo 3 image-to-video only).",
+                allowed_modes={ParameterMode.PROPERTY},
+                ui_options={"hide_when": {"model": ["veo-2.0-generate-001", "veo-2.0-generate-exp"]}},
+            )
+            Parameter(
+                name="storage_uri",
+                type="str",
+                tooltip="Cloud Storage URI to store output (optional).",
+                allowed_modes={ParameterMode.PROPERTY},
+            )
+        adv_group.ui_options = {"hide": True}
+        self.add_node_element(adv_group)
 
         self.add_parameter(
             Parameter(
@@ -236,11 +316,29 @@ class VeoImageToVideoGenerator(ControlNode):
 
         logs_group.ui_options = {"hide": True}
         self.add_node_element(logs_group)
+        # Debug: dump parameter names so we can confirm containers exist at init time.
+        try:
+            print(f"[VeoImageToVideoGenerator DEBUG] Parameters initialized: {[p.name for p in self.parameters]}")
+        except Exception:
+            pass
 
     def _log(self, message: str):
         """Append a message to the logs output parameter."""
         print(message)
         self.append_value_to_parameter("logs", message + "\n")
+
+    def _get_access_token(self, credentials) -> str:
+        """Get access token from credentials or ADC."""
+        try:
+            from google.auth.transport.requests import Request
+            import google.auth
+        except Exception:
+            raise RuntimeError("google-auth not installed; required for REST calls.")
+        if credentials is None:
+            credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        if not credentials.valid:
+            credentials.refresh(Request())
+        return credentials.token
 
     def _get_project_id(self, service_account_file: str) -> str:
         """Read the project_id from the service account JSON file."""
@@ -444,6 +542,85 @@ class VeoImageToVideoGenerator(ControlNode):
             self._log(traceback.format_exc())
             raise
 
+    def _poll_operations_rest(self, operation_name: str, location: str, credentials, final_project_id: str):
+        """Poll Vertex Operations API until done; then process videos."""
+        access_token = self._get_access_token(credentials)
+        base_url = f"https://{location}-aiplatform.googleapis.com/v1/{operation_name}"
+        self._log("⏳ Operation started! Waiting for completion...")
+        while True:
+            resp = requests.get(base_url, headers={"Authorization": f"Bearer {access_token}"}, timeout=60)
+            resp.raise_for_status()
+            op = resp.json()
+            if op.get("done"):
+                break
+            self._log("⏳ Still generating...")
+            time.sleep(15)
+
+        if "error" in op:
+            self._log(f"❌ Video generation failed with error: {op['error']}")
+            return
+
+        response = op.get("response") or {}
+        # Try both snake_case and camelCase
+        generated = response.get("generated_videos") or response.get("generatedVideos") or []
+        if not generated:
+            self._log("❌ No videos found in the response.")
+            return
+
+        video_artifacts = []
+        import base64 as _b64
+        for i, v in enumerate(generated):
+            self._log(f"Processing video {i + 1}...")
+            video_bytes = None
+            video_obj = v.get("video") or {}
+            # bytesBase64Encoded or videoBytes
+            b64 = video_obj.get("bytesBase64Encoded") or video_obj.get("videoBytes")
+            if b64:
+                self._log(f"💾 Video {i + 1} returned as base64.")
+                try:
+                    video_bytes = _b64.b64decode(b64)
+                except Exception as e:
+                    self._log(f"❌ Failed to decode base64 for video {i + 1}: {e}")
+            # gcsUri or uri
+            if not video_bytes:
+                gcs_uri = video_obj.get("gcsUri") or video_obj.get("uri")
+                if gcs_uri:
+                    self._log(f"📹 Video {i + 1} has GCS URI. Downloading...")
+                    video_bytes = self._download_from_gcs(gcs_uri, final_project_id, credentials)
+
+            if video_bytes:
+                filename = f"veo_image_to_video_{int(time.time())}_{i + 1}.mp4"
+                self._log(f"Saving video bytes to static storage as {filename}...")
+
+                static_files_manager = GriptapeNodes.StaticFilesManager()
+                url = static_files_manager.save_static_file(video_bytes, filename)
+
+                url_artifact = VideoUrlArtifact(value=url, name=filename)
+                video_artifacts.append(url_artifact)
+                self._log(f"✅ Video {i + 1} saved. URL: {url}")
+            else:
+                self._log(f"❌ Could not retrieve video data for video {i + 1}.")
+
+        if video_artifacts:
+            self.parameter_output_values["video_artifacts"] = video_artifacts
+            try:
+                self.publish_update_to_parameter("video_artifacts", video_artifacts)
+            except Exception:
+                pass
+            for i, video in enumerate(video_artifacts):
+                row = (i // 2) + 1
+                col = (i % 2) + 1
+                param_name = f"video_{row}_{col}"
+                self.parameter_output_values[param_name] = video
+                self._log(f"📍 Assigned video {i + 1} to grid position {param_name}")
+                try:
+                    self.publish_update_to_parameter(param_name, video)
+                except Exception:
+                    pass
+            self._log("\n🎉 SUCCESS! All videos processed.")
+        else:
+            self._log("\n❌ No videos were successfully saved.")
+
     def process(self) -> AsyncResult:
         if not GOOGLE_INSTALLED:
             self._log(
@@ -454,6 +631,14 @@ class VeoImageToVideoGenerator(ControlNode):
 
         # Get input values
         image_artifact = self.get_parameter_value("image")
+        # Debug: verify reference_images container exists at runtime
+        try:
+            param_names = [p.name for p in self.parameters]
+            self._log(f"[DEBUG] Parameter names at process start: {param_names}")
+            has_ref_list = any(p.name == "reference_images" for p in self.parameters)
+            self._log(f"[DEBUG] reference_images present: {has_ref_list}")
+        except Exception as e:
+            self._log(f"[DEBUG] Failed to list parameters: {e}")
         last_frame_artifact = self.get_parameter_value("last_frame")
         prompt = self.get_parameter_value("prompt")
         negative_prompt = self.get_parameter_value("negative_prompt")
@@ -474,6 +659,15 @@ class VeoImageToVideoGenerator(ControlNode):
         if model == "veo-3.0-generate-preview" and aspect_ratio == "9:16":
             self._log("ERROR: 9:16 aspect ratio is not supported by veo-3.0-generate-preview model.")
             return
+        # Validate reference type vs model support
+        try:
+            ref_imgs = self.get_parameter_value("reference_images")
+            ref_type = (self.get_parameter_value("reference_type") or "asset").strip().lower()
+            if ref_imgs and isinstance(model, str) and model.startswith("veo-3.1") and ref_type == "style":
+                self._log("ERROR: 'style' reference images are not supported by Veo 3.1 models. Use 'asset'.")
+                return
+        except Exception:
+            pass
 
         try:
             final_project_id = None
@@ -523,65 +717,113 @@ class VeoImageToVideoGenerator(ControlNode):
                     final_project_id = project_id
 
             self._log(f"Project ID: {final_project_id}")
+            # Initialize Vertex AI for REST (used for GCS client only)
             self._log("Initializing Vertex AI...")
             aiplatform.init(project=final_project_id, location=location, credentials=credentials)
 
-            self._log("Initializing Generative AI Client...")
-            client = genai.Client(vertexai=True, project=final_project_id, location=location)
-
-            # Convert image to base64
-            base64_data, mime_type = self._get_image_base64(image_artifact)
-
-            # Optional: last frame for 3.1 models
-            base64_last_frame = None
-            mime_last_frame = None
-            if last_frame_artifact and isinstance(model, str) and model.startswith("veo-3.1"):
-                self._log("🪄 Using last_frame for Veo 3.1 interpolation...")
-                base64_last_frame, mime_last_frame = self._get_image_base64(last_frame_artifact)
-
+            # Build REST predictLongRunning payload
             self._log(f"🎬 Generating video from image with prompt: '{prompt or 'No prompt provided'}'")
 
-            # Build the API call parameters
-            config_kwargs = {
-                "aspect_ratio": aspect_ratio,
-                "resolution": resolution,
-                "number_of_videos": num_videos,
+            # image
+            base64_data, mime_type = self._get_image_base64(image_artifact)
+            image_entry = {"bytesBase64Encoded": base64_data, "mimeType": mime_type}
+
+            # lastFrame (only if provided)
+            last_frame_entry = None
+            if last_frame_artifact:
+                b64_last, mt_last = self._get_image_base64(last_frame_artifact)
+                last_frame_entry = {"bytesBase64Encoded": b64_last, "mimeType": mt_last}
+
+            # referenceImages
+            ref_images = self.get_parameter_value("reference_images") or []
+            if not isinstance(ref_images, list):
+                ref_images = [ref_images]
+            ref_type = (self.get_parameter_value("reference_type") or "asset").strip().lower()
+            reference_images = []
+            kept = 0
+            for r in ref_images:
+                if kept >= 3:
+                    break
+                try:
+                    b64, mt = self._get_image_base64(r)
+                    reference_images.append({"image": {"bytesBase64Encoded": b64, "mimeType": mt}, "referenceType": ref_type})
+                    kept += 1
+                except Exception as e:
+                    self._log(f"⚠️ Skipping reference image due to error: {e}")
+
+            # parameters
+            params = {
+                "aspectRatio": aspect_ratio,
+                "resolution": resolution if resolution else None,
+                "sampleCount": num_videos,
+                "seed": seed if seed and seed > 0 else None,
+                "negativePrompt": negative_prompt or None,
             }
+            # Advanced
+            compression_quality = self.get_parameter_value("compression_quality")
+            duration_seconds = self.get_parameter_value("duration_seconds")
+            enhance_prompt = self.get_parameter_value("enhance_prompt")
+            generate_audio = self.get_parameter_value("generate_audio")
+            person_generation = self.get_parameter_value("person_generation")
+            resize_mode = self.get_parameter_value("resize_mode")
+            storage_uri = self.get_parameter_value("storage_uri")
+            if compression_quality: params["compressionQuality"] = compression_quality
+            if duration_seconds: params["durationSeconds"] = int(duration_seconds)
+            if enhance_prompt is not None: params["enhancePrompt"] = bool(enhance_prompt)
+            if generate_audio is not None: params["generateAudio"] = bool(generate_audio)
+            if person_generation: params["personGeneration"] = person_generation
+            if resize_mode: params["resizeMode"] = resize_mode
+            if storage_uri: params["storageUri"] = storage_uri
+            # prune None
+            params = {k: v for k, v in params.items() if v is not None}
 
-            # Only Veo 3.1 supports last_frame
-            if base64_last_frame and mime_last_frame and isinstance(model, str) and model.startswith("veo-3.1"):
-                config_kwargs["last_frame"] = Image(
-                    image_bytes=base64_last_frame,
-                    mime_type=mime_last_frame,
-                )
+            instance = {"prompt": prompt or ""}
+            if image_entry: instance["image"] = image_entry
+            if last_frame_entry: instance["lastFrame"] = last_frame_entry
+            if reference_images: instance["referenceImages"] = reference_images
 
-            api_params = {
-                "model": model,
-                "image": Image(
-                    image_bytes=base64_data,
-                    mime_type=mime_type,
-                ),
-                "config": GenerateVideosConfig(**config_kwargs),
-            }
+            payload = {"instances": [instance], "parameters": params}
 
-            # Add prompt if provided
-            if prompt:
-                api_params["prompt"] = prompt
+            # Redacted payload preview
+            try:
+                preview = {
+                    "instances": [
+                        {
+                            "hasPrompt": bool(instance.get("prompt")),
+                            "image": {"mimeType": image_entry.get("mimeType"), "bytesBase64Encoded": f"[{len(image_entry.get('bytesBase64Encoded',''))} chars]"} if image_entry else None,
+                            "lastFrame": {"mimeType": last_frame_entry.get("mimeType"), "bytesBase64Encoded": f"[{len(last_frame_entry.get('bytesBase64Encoded',''))} chars]"} if last_frame_entry else None,
+                            "referenceImages": [
+                                {
+                                    "image": {"mimeType": ri.get("image", {}).get("mimeType"), "bytesBase64Encoded": f"[{len(ri.get('image', {}).get('bytesBase64Encoded',''))} chars]"},
+                                    "referenceType": ri.get("referenceType")
+                                } for ri in reference_images
+                            ] if reference_images else None,
+                        }
+                    ],
+                    "parameters": params,
+                }
+                self._log("📦 REST Payload preview:\n" + json.dumps(preview, indent=2))
+            except Exception as e:
+                self._log(f"⚠️ Failed to build REST payload preview: {e}")
 
-            # Add negative prompt if provided
-            if negative_prompt:
-                api_params["negative_prompt"] = negative_prompt
+            # REST call
+            access_token = self._get_access_token(credentials)
+            url = f"https://{location}-aiplatform.googleapis.com/v1/projects/{final_project_id}/locations/{location}/publishers/google/models/{model}:predictLongRunning"
+            headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+            resp = requests.post(url, headers=headers, json=payload, timeout=120)
+            resp.raise_for_status()
+            op = resp.json()
+            op_name = op.get("name") or op.get("operation") or op.get("operationName")
+            if not op_name:
+                # If this path returns operation-like object from client lib (unlikely), fallback to client polling
+                self._log("⚠️ REST response missing operation name; attempting client-based polling fallback.")
+                client = genai.Client(vertexai=True, project=final_project_id, location=location)
+                operation = type("Op", (), {"done": False})()  # dummy placeholder; not used
+                yield lambda: self._poll_and_process_video_result(client, operation, final_project_id, credentials)
+                return
 
-            # Add seed if provided (non-zero)
-            if seed and seed > 0:
-                api_params["seed"] = seed
-
-            operation = client.models.generate_videos(**api_params)
-
-            self._log("⏳ Operation started! Waiting for completion...")
-
-            # Use yield pattern for non-blocking execution
-            yield lambda: self._poll_and_process_video_result(client, operation, final_project_id, credentials)
+            # Use yield pattern for non-blocking execution (REST)
+            yield lambda: self._poll_operations_rest(op_name, location, credentials, final_project_id)
 
         except ValueError as e:
             self._log(f"❌ CONFIGURATION ERROR: {e}")
