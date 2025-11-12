@@ -36,7 +36,7 @@ MODEL_CAPABILITIES = {
     "veo-3.1-generate-preview": {
         "max_reference_images": 3,
         "supports_reference_type_choice": False,  # Only supports "asset"
-        "duration_choices": [4, 6, 8],
+        "duration_choices": [8],
         "duration_default": 8,
         "version": "veo3",
     },
@@ -738,6 +738,10 @@ class VeoTextToVideoWithRef(ControlNode):
             if generate_audio:
                 config_kwargs["generate_audio"] = True
 
+            # Add seed if provided (non-zero) - seed goes in config/parameters
+            if seed and seed > 0:
+                config_kwargs["seed"] = seed
+
             # Build API parameters
             api_params = {
                 "model": model,
@@ -748,10 +752,6 @@ class VeoTextToVideoWithRef(ControlNode):
             # Add negative prompt if provided
             if negative_prompt:
                 api_params["negative_prompt"] = negative_prompt
-
-            # Add seed if provided (non-zero)
-            if seed and seed > 0:
-                api_params["seed"] = seed
 
             operation = client.models.generate_videos(**api_params)
 
