@@ -3,11 +3,12 @@ import os
 import time
 from typing import Any, ClassVar
 
-from griptape.artifacts import VideoUrlArtifact
+from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
+from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
@@ -17,53 +18,39 @@ from griptape_nodes.traits.options import Options
 try:
     from google import genai
     from google.cloud import aiplatform, storage
-    from google.genai.types import GenerateVideosConfig
+    from google.genai.types import GenerateVideosConfig, Image, VideoGenerationReferenceImage
     from google.oauth2 import service_account
 
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
 
+# Only models that support reference images
 MODELS = [
-    "veo-3.1-fast-generate-preview",
-    "veo-3.0-generate-001",
-    "veo-3.0-fast-generate-001",
-    "veo-3.0-generate-preview",
-    "veo-3.0-fast-generate-preview",
+    "veo-3.1-generate-preview",
+    "veo-2.0-generate-exp",
 ]
 
 # Model capabilities configuration
-# Maps model names to their supported features
 MODEL_CAPABILITIES = {
-    "veo-3.1-fast-generate-preview": {
+    "veo-3.1-generate-preview": {
+        "max_reference_images": 3,
+        "supports_reference_type_choice": False,  # Only supports "asset"
         "duration_choices": [4, 6, 8],
         "duration_default": 8,
         "version": "veo3",
     },
-    "veo-3.0-generate-001": {
-        "duration_choices": [4, 6, 8],
+    "veo-2.0-generate-exp": {
+        "max_reference_images": 1,  # Only first reference image
+        "supports_reference_type_choice": True,  # Can choose "asset" or "style"
+        "duration_choices": [5, 6, 7, 8],
         "duration_default": 8,
-        "version": "veo3",
-    },
-    "veo-3.0-fast-generate-001": {
-        "duration_choices": [4, 6, 8],
-        "duration_default": 8,
-        "version": "veo3",
-    },
-    "veo-3.0-generate-preview": {
-        "duration_choices": [4, 6, 8],
-        "duration_default": 8,
-        "version": "veo3",
-    },
-    "veo-3.0-fast-generate-preview": {
-        "duration_choices": [4, 6, 8],
-        "duration_default": 8,
-        "version": "veo3",
+        "version": "veo2",
     },
 }
 
 
-class VeoVideoGenerator(ControlNode):
+class VeoTextToVideoWithRef(ControlNode):
     # Class-level cache for GCS clients
     _gcs_client_cache: ClassVar[dict[str, Any]] = {}
 
@@ -76,7 +63,7 @@ class VeoVideoGenerator(ControlNode):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.category = "Google AI"
-        self.description = "Generates videos using Google's Veo model."
+        self.description = "Generates videos using Google's Veo model with reference images. Only includes models that support reference images."
 
         # Main Parameters
         self.add_parameter(
@@ -102,17 +89,53 @@ class VeoVideoGenerator(ControlNode):
         self.add_parameter(
             ParameterString(
                 name="model",
-                tooltip="The Veo model to use for generation.",
+                tooltip="The Veo model to use for generation (all models support reference images).",
                 default_value=MODELS[0],
                 traits=[Options(choices=MODELS)],
                 allow_output=False,
             )
         )
 
+        # Reference type (for veo-2.0-generate-exp)
+        self.add_parameter(
+            ParameterString(
+                name="reference_type",
+                tooltip="Type of reference image: 'asset' (up to 3 images for veo-3.1, 1 for veo-2.0) or 'style' (1 image only, veo-2.0 only).",
+                default_value="asset",
+                traits={Options(choices=["asset", "style"])},
+                allow_output=False,
+            )
+        )
+
+        # Reference images (always visible - all models support them)
+        self.add_parameter(
+            ParameterImage(
+                name="reference_image_1",
+                tooltip="First reference image (required).",
+                allowed_modes={ParameterMode.INPUT},
+            )
+        )
+
+        self.add_parameter(
+            ParameterImage(
+                name="reference_image_2",
+                tooltip="Second reference image (optional, veo-3.1-generate-preview only).",
+                allowed_modes={ParameterMode.INPUT},
+            )
+        )
+
+        self.add_parameter(
+            ParameterImage(
+                name="reference_image_3",
+                tooltip="Third reference image (optional, veo-3.1-generate-preview only).",
+                allowed_modes={ParameterMode.INPUT},
+            )
+        )
+
         self.add_parameter(
             ParameterString(
                 name="aspect_ratio",
-                tooltip="Aspect ratio of the generated video. Note: 9:16 is not supported by veo-3.0-generate-preview.",
+                tooltip="Aspect ratio of the generated video.",
                 default_value="16:9",
                 traits={Options(choices=["16:9", "9:16"])},
                 allow_output=False,
@@ -144,7 +167,7 @@ class VeoVideoGenerator(ControlNode):
         self.add_parameter(
             ParameterInt(
                 name="duration",
-                tooltip="Duration of the generated video in seconds. Veo 2.0: 5-8 seconds. Veo 3.0: 4, 6, or 8 seconds.",
+                tooltip="Duration of the generated video in seconds. Veo 2.0: 5-8 seconds. Veo 3.1: 4, 6, or 8 seconds.",
                 default_value=default_capabilities["duration_default"],
                 traits={Options(choices=default_capabilities["duration_choices"])},
                 allow_output=False,
@@ -184,7 +207,7 @@ class VeoVideoGenerator(ControlNode):
             )
         )
 
-        # Output Parameters using your EXACT grid specification
+        # Output Parameters using grid specification
         grid_param = Parameter(
             name="video_artifacts",
             type="list",
@@ -197,7 +220,6 @@ class VeoVideoGenerator(ControlNode):
         self.add_parameter(grid_param)
 
         # Individual video output parameters for grid positions
-        # Always add all 4, but hide 2-4 by default (shown when number_of_videos > 1)
         self.add_parameter(
             Parameter(
                 name="video_1_1",
@@ -255,13 +277,49 @@ class VeoVideoGenerator(ControlNode):
         logs_group.ui_options = {"collapsed": True}
         self.add_node_element(logs_group)
 
-        # Initialize duration choices based on default model
-        default_model = self.get_parameter_value("model") or MODELS[0]
-        self._update_duration_choices_for_model(default_model)
-
         # Initialize video output visibility based on default number of videos
         default_num_videos = self.get_parameter_value("number_of_videos") or 1
         self._update_video_output_visibility(default_num_videos)
+
+        # Initialize reference image visibility based on default model
+        default_model = self.get_parameter_value("model") or MODELS[0]
+        self._update_reference_image_visibility_for_model(default_model)
+        self._update_generate_audio_visibility_for_model(default_model)
+
+    def _update_reference_image_visibility_for_model(self, model: str) -> None:
+        """Update reference image visibility based on the selected model."""
+        if model not in MODEL_CAPABILITIES:
+            return
+
+        capabilities = MODEL_CAPABILITIES[model]
+        max_refs = capabilities.get("max_reference_images", 0)
+
+        # Always show first reference image (required)
+        self.show_parameter_by_name("reference_image_1")
+
+        # Show/hide additional reference images based on max count
+        if max_refs >= 3:
+            # veo-3.1-generate-preview: show all 3
+            self.show_parameter_by_name("reference_image_2")
+            self.show_parameter_by_name("reference_image_3")
+        else:
+            # veo-2.0-generate-exp: only show first (max_refs = 1)
+            self.hide_parameter_by_name("reference_image_2")
+            self.hide_parameter_by_name("reference_image_3")
+
+    def _update_generate_audio_visibility_for_model(self, model: str) -> None:
+        """Update generate_audio visibility based on the selected model (Veo 3 only)."""
+        if model not in MODEL_CAPABILITIES:
+            return
+
+        capabilities = MODEL_CAPABILITIES[model]
+        version = capabilities.get("version", "")
+
+        # Only show generate_audio for Veo 3 models
+        if version == "veo3":
+            self.show_parameter_by_name("generate_audio")
+        else:
+            self.hide_parameter_by_name("generate_audio")
 
     def _update_duration_choices_for_model(self, model: str) -> None:
         """Update duration choices based on the selected model."""
@@ -301,6 +359,8 @@ class VeoVideoGenerator(ControlNode):
         """Handle parameter value changes."""
         if parameter.name == "model":
             self._update_duration_choices_for_model(value)
+            self._update_reference_image_visibility_for_model(value)
+            self._update_generate_audio_visibility_for_model(value)
         elif parameter.name == "number_of_videos":
             self._update_video_output_visibility(value)
         return super().after_value_set(parameter, value)
@@ -331,6 +391,52 @@ class VeoVideoGenerator(ControlNode):
             raise ValueError("No 'project_id' found in the service account file.")
 
         return project_id
+
+    def _get_image_base64(self, image_artifact) -> tuple[str, str]:
+        """Convert image artifact to base64 string and return base64 data and mime type."""
+        self._log("🖼️ Converting image to base64...")
+
+        import requests
+
+        # Get image data based on artifact type
+        if isinstance(image_artifact, ImageUrlArtifact):
+            # Download image from URL
+            self._log(f"📥 Downloading image from URL: {image_artifact.value}")
+            response = requests.get(image_artifact.value, timeout=30)
+            response.raise_for_status()
+            image_data = response.content
+
+            # Determine mime type from URL or response headers
+            content_type = response.headers.get("content-type", "image/jpeg")
+            if "png" in content_type.lower():
+                mime_type = "image/png"
+            else:
+                mime_type = "image/jpeg"
+
+        elif isinstance(image_artifact, ImageArtifact):
+            # Handle ImageArtifact
+            if hasattr(image_artifact, "value") and hasattr(image_artifact.value, "read"):
+                # If it's a file-like object
+                image_data = image_artifact.value.read()
+            elif hasattr(image_artifact, "base64"):
+                # If it's already base64 encoded, return it directly
+                return image_artifact.base64, "image/png"
+            else:
+                # Try to get the raw value
+                image_data = image_artifact.value
+
+            mime_type = "image/png"  # Default for ImageArtifact
+        else:
+            raise ValueError(f"Unsupported image artifact type: {type(image_artifact)}")
+
+        # Convert to base64
+        import base64
+
+        base64_data = base64.b64encode(image_data).decode("utf-8")
+
+        self._log(f"✅ Image converted to base64 ({len(base64_data)} characters)")
+
+        return base64_data, mime_type
 
     def _get_gcs_client(self, project_id: str, credentials):
         """Get a cached or new GCS client."""
@@ -471,15 +577,18 @@ class VeoVideoGenerator(ControlNode):
         generate_audio = self.get_parameter_value("generate_audio")
         num_videos = self.get_parameter_value("number_of_videos")
         location = self.get_parameter_value("location")
+        reference_image_1 = self.get_parameter_value("reference_image_1")
+        reference_image_2 = self.get_parameter_value("reference_image_2")
+        reference_image_3 = self.get_parameter_value("reference_image_3")
+        reference_type = self.get_parameter_value("reference_type") or "asset"
 
         # Validate inputs
         if not prompt:
             self._log("ERROR: Prompt is a required input.")
             return
 
-        # Validate aspect ratio for specific models
-        if model == "veo-3.0-generate-preview" and aspect_ratio == "9:16":
-            self._log("ERROR: 9:16 aspect ratio is not supported by veo-3.0-generate-preview model.")
+        if not reference_image_1:
+            self._log("ERROR: At least one reference image is required.")
             return
 
         try:
@@ -536,6 +645,71 @@ class VeoVideoGenerator(ControlNode):
             self._log("Initializing Generative AI Client...")
             client = genai.Client(vertexai=True, project=final_project_id, location=location)
 
+            # Process reference images
+            reference_images = []
+            capabilities = MODEL_CAPABILITIES.get(model, {})
+            max_refs = capabilities.get("max_reference_images", 0)
+            supports_type_choice = capabilities.get("supports_reference_type_choice", False)
+
+            # Collect reference images based on model capabilities
+            ref_image_list = [reference_image_1]
+            if max_refs >= 3 and reference_image_2:
+                ref_image_list.append(reference_image_2)
+            if max_refs >= 3 and reference_image_3:
+                ref_image_list.append(reference_image_3)
+
+            # Determine reference type
+            if supports_type_choice:
+                # veo-2.0-generate-exp: use user's choice
+                ref_type = reference_type.lower()
+                if ref_type not in ["asset", "style"]:
+                    ref_type = "asset"  # Default to asset
+                # For style, only 1 image is allowed
+                if ref_type == "style" and len(ref_image_list) > 1:
+                    self._log("⚠️ Warning: Style reference type only supports 1 image. Using first image only.")
+                    ref_image_list = ref_image_list[:1]
+            else:
+                # veo-3.1: only supports "asset"
+                ref_type = "asset"
+
+            self._log(f"🖼️ Processing {len(ref_image_list)} reference image(s) with type '{ref_type}'...")
+
+            for ref_img in ref_image_list:
+                if not ref_img:
+                    continue
+
+                # Handle dict input
+                if isinstance(ref_img, dict):
+                    try:
+                        if ref_img.get("type") == "ImageUrlArtifact":
+                            ref_img = ImageUrlArtifact(value=ref_img.get("value"))
+                        elif "value" in ref_img:
+                            ref_img = ImageUrlArtifact(value=ref_img["value"])
+                    except Exception as e:
+                        self._log(f"⚠️ Failed to convert reference image dict: {e}")
+                        continue
+
+                try:
+                    ref_base64, ref_mime = self._get_image_base64(ref_img)
+                    reference_images.append(
+                        VideoGenerationReferenceImage(
+                            image=Image(
+                                image_bytes=ref_base64,
+                                mime_type=ref_mime,
+                            ),
+                            reference_type=ref_type,
+                        )
+                    )
+                except Exception as e:
+                    self._log(f"⚠️ Failed to process reference image: {e}")
+                    continue
+
+            if reference_images:
+                self._log(f"✅ Processed {len(reference_images)} reference image(s) with type '{ref_type}'")
+            else:
+                self._log("❌ ERROR: Failed to process any reference images.")
+                return
+
             self._log(f"🎬 Generating video for prompt: '{prompt}'")
 
             # Build config
@@ -543,6 +717,7 @@ class VeoVideoGenerator(ControlNode):
                 "aspect_ratio": aspect_ratio,
                 "resolution": resolution,
                 "number_of_videos": num_videos,
+                "reference_images": reference_images,
             }
 
             # Add durationSeconds if provided
