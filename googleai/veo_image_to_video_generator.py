@@ -18,7 +18,7 @@ from griptape_nodes.traits.options import Options
 try:
     from google import genai
     from google.cloud import aiplatform, storage
-    from google.genai.types import GenerateVideosConfig, Image
+    from google.genai.types import GenerateVideosConfig, Image, VideoGenerationReferenceImage
     from google.oauth2 import service_account
 
     GOOGLE_INSTALLED = True
@@ -112,6 +112,20 @@ class VeoImageToVideoGenerator(ControlNode):
             )
         )
 
+        # Optional middle frame (for veo-3.1-generate-preview only)
+        # If provided, switches to text-to-video mode with reference image
+        self.add_parameter(
+            ParameterImage(
+                name="middle_frame",
+                tooltip="Optional: Middle/reference frame for veo-3.1-generate-preview. If provided, switches to text-to-video mode with this as a reference image. Requires a prompt.",
+                ui_options={
+                    "placeholder_text": "Optional middle frame (switches to text-to-video mode)",
+                },
+                allow_property=False,
+                allow_output=False,
+            )
+        )
+
         # Optional last frame (for specific models)
         self.add_parameter(
             ParameterImage(
@@ -128,9 +142,9 @@ class VeoImageToVideoGenerator(ControlNode):
         self.add_parameter(
             ParameterString(
                 name="prompt",
-                tooltip="Optional: The text prompt for video generation to guide the animation.",
+                tooltip="The text prompt for video generation. Required when using middle_frame (text-to-video mode), optional for image-to-video mode.",
                 multiline=True,
-                placeholder_text="Optional text prompt to guide the animation",
+                placeholder_text="Text prompt to guide the animation",
                 allow_output=False,
             )
         )
@@ -307,6 +321,12 @@ class VeoImageToVideoGenerator(ControlNode):
             self.show_parameter_by_name("last_frame")
         else:
             self.hide_parameter_by_name("last_frame")
+
+        # Update middle_frame visibility (only for veo-3.1-generate-preview)
+        if model == "veo-3.1-generate-preview":
+            self.show_parameter_by_name("middle_frame")
+        else:
+            self.hide_parameter_by_name("middle_frame")
 
         # Update duration choices
         current_duration = self.get_parameter_value("duration")
@@ -575,6 +595,7 @@ class VeoImageToVideoGenerator(ControlNode):
         # Get input values
         image_artifact = self.get_parameter_value("image")
         last_frame_artifact = self.get_parameter_value("last_frame")
+        middle_frame_artifact = self.get_parameter_value("middle_frame")
         prompt = self.get_parameter_value("prompt")
         negative_prompt = self.get_parameter_value("negative_prompt")
         model = self.get_parameter_value("model")
@@ -586,13 +607,9 @@ class VeoImageToVideoGenerator(ControlNode):
         seed = self.get_parameter_value("seed")
         location = self.get_parameter_value("location")
 
-        # Validate inputs
-        if not image_artifact:
-            self._log("ERROR: Image is a required input.")
-            return
-
         # Handle dict input (can happen after serialization/deserialization)
-        if isinstance(image_artifact, dict):
+        # Handle image_artifact dict
+        if image_artifact and isinstance(image_artifact, dict):
             try:
                 # Convert dict to ImageUrlArtifact
                 if image_artifact.get("type") == "ImageUrlArtifact":
@@ -619,6 +636,34 @@ class VeoImageToVideoGenerator(ControlNode):
             except Exception as e:
                 self._log(f"ERROR: Failed to convert last_frame dict to image artifact: {e}")
                 last_frame_artifact = None
+
+        # Handle dict input for middle_frame if present
+        if middle_frame_artifact and isinstance(middle_frame_artifact, dict):
+            try:
+                # Convert dict to ImageUrlArtifact
+                if middle_frame_artifact.get("type") == "ImageUrlArtifact":
+                    middle_frame_artifact = ImageUrlArtifact(value=middle_frame_artifact.get("value"))
+                elif "value" in middle_frame_artifact:
+                    middle_frame_artifact = ImageUrlArtifact(value=middle_frame_artifact["value"])
+                else:
+                    middle_frame_artifact = None
+            except Exception as e:
+                self._log(f"ERROR: Failed to convert middle_frame dict to image artifact: {e}")
+                middle_frame_artifact = None
+
+        # Determine mode: if middle_frame is provided, use text-to-video mode
+        use_text_to_video_mode = middle_frame_artifact is not None and model == "veo-3.1-generate-preview"
+
+        # Validate inputs based on mode
+        if use_text_to_video_mode:
+            # Text-to-video mode: prompt is required, image is not used
+            if not prompt:
+                self._log("ERROR: Prompt is required when using middle_frame (text-to-video mode).")
+                return
+        # Image-to-video mode: image is required
+        elif not image_artifact:
+            self._log("ERROR: Image is a required input.")
+            return
 
         # Validate aspect ratio for specific models
         if model == "veo-3.0-generate-preview" and aspect_ratio == "9:16":
@@ -679,19 +724,6 @@ class VeoImageToVideoGenerator(ControlNode):
             self._log("Initializing Generative AI Client...")
             client = genai.Client(vertexai=True, project=final_project_id, location=location)
 
-            # Convert image to base64
-            base64_data, mime_type = self._get_image_base64(image_artifact)
-
-            # Optional: last frame (check model capabilities)
-            base64_last_frame = None
-            mime_last_frame = None
-            capabilities = MODEL_CAPABILITIES.get(model, {})
-            if last_frame_artifact and capabilities.get("supports_last_frame", False):
-                self._log("🪄 Using last_frame for interpolation...")
-                base64_last_frame, mime_last_frame = self._get_image_base64(last_frame_artifact)
-
-            self._log(f"🎬 Generating video from image with prompt: '{prompt or 'No prompt provided'}'")
-
             # Build the API call parameters
             config_kwargs = {
                 "aspect_ratio": aspect_ratio,
@@ -703,35 +735,84 @@ class VeoImageToVideoGenerator(ControlNode):
             if duration:
                 config_kwargs["durationSeconds"] = duration
 
-            # Add last_frame if provided and supported
-            if base64_last_frame and mime_last_frame:
-                config_kwargs["last_frame"] = Image(
-                    image_bytes=base64_last_frame,
-                    mime_type=mime_last_frame,
-                )
+            if use_text_to_video_mode:
+                # Text-to-video mode: use middle_frame as reference image
+                self._log("📋 Using text-to-video mode with middle_frame as reference image")
+                self._log(f"🎬 Generating video for prompt: '{prompt}'")
 
-            # Build API parameters for image-to-video
-            # Image-to-video uses 'image' (start frame) and optionally 'last_frame' (end frame)
-            self._log("📋 Using image-to-video mode")
-            api_params = {
-                "model": model,
-                "image": Image(
-                    image_bytes=base64_data,
-                    mime_type=mime_type,
-                ),
-                "config": GenerateVideosConfig(**config_kwargs),
-            }
-            # Prompt is optional for image-to-video
-            if prompt:
-                api_params["prompt"] = prompt
+                # Convert middle_frame to base64 and use as reference image
+                middle_base64, middle_mime = self._get_image_base64(middle_frame_artifact)
+                reference_images = [
+                    VideoGenerationReferenceImage(
+                        image=Image(
+                            image_bytes=middle_base64,
+                            mime_type=middle_mime,
+                        ),
+                        reference_type="asset",
+                    )
+                ]
+                config_kwargs["reference_images"] = reference_images
+                self._log("✅ Using middle_frame as reference image (asset type)")
 
-            # Add negative prompt if provided
-            if negative_prompt:
-                api_params["negative_prompt"] = negative_prompt
+                # Build API parameters for text-to-video
+                api_params = {
+                    "model": model,
+                    "prompt": prompt,
+                    "config": GenerateVideosConfig(**config_kwargs),
+                }
 
-            # Add seed if provided (non-zero)
-            if seed and seed > 0:
-                api_params["seed"] = seed
+                # Add negative prompt if provided
+                if negative_prompt:
+                    api_params["negative_prompt"] = negative_prompt
+
+                # Add seed if provided (non-zero)
+                if seed and seed > 0:
+                    api_params["seed"] = seed
+
+            else:
+                # Image-to-video mode: use image as start frame
+                # Convert image to base64
+                base64_data, mime_type = self._get_image_base64(image_artifact)
+
+                # Optional: last frame (check model capabilities)
+                base64_last_frame = None
+                mime_last_frame = None
+                capabilities = MODEL_CAPABILITIES.get(model, {})
+                if last_frame_artifact and capabilities.get("supports_last_frame", False):
+                    self._log("🪄 Using last_frame for interpolation...")
+                    base64_last_frame, mime_last_frame = self._get_image_base64(last_frame_artifact)
+
+                self._log(f"🎬 Generating video from image with prompt: '{prompt or 'No prompt provided'}'")
+
+                # Add last_frame if provided and supported
+                if base64_last_frame and mime_last_frame:
+                    config_kwargs["last_frame"] = Image(
+                        image_bytes=base64_last_frame,
+                        mime_type=mime_last_frame,
+                    )
+
+                # Build API parameters for image-to-video
+                # Image-to-video uses 'image' (start frame) and optionally 'last_frame' (end frame)
+                self._log("📋 Using image-to-video mode")
+                api_params = {
+                    "model": model,
+                    "image": Image(
+                        image_bytes=base64_data,
+                        mime_type=mime_type,
+                    ),
+                    "config": GenerateVideosConfig(**config_kwargs),
+                }
+                # Prompt is optional for image-to-video
+                if prompt:
+                    api_params["prompt"] = prompt
+
+                # Add negative prompt if provided
+                if negative_prompt:
+                    api_params["negative_prompt"] = negative_prompt
+
+                # Add seed if provided (non-zero)
+                if seed and seed > 0:
+                    api_params["seed"] = seed
 
             operation = client.models.generate_videos(**api_params)
 
