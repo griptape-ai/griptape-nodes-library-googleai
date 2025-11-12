@@ -346,7 +346,7 @@ class LyriaAudioGenerator(ControlNode):
     def _process(self):
         if not GOOGLE_INSTALLED:
             self._log(
-                "ERROR: Required Google libraries are not installed. Please add 'google-cloud-aiplatform' to your library's dependencies."
+                "ERROR: Required Google libraries are not installed. Please add 'google-auth', 'google-cloud-aiplatform' to your library's dependencies."
             )
             return
 

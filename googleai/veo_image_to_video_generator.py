@@ -119,7 +119,7 @@ class VeoImageToVideoGenerator(ControlNode):
                 name="middle_frame",
                 tooltip="Optional: Middle/reference frame for veo-3.1-generate-preview. If provided, switches to text-to-video mode with this as a reference image. Requires a prompt.",
                 ui_options={
-                    "placeholder_text": "Optional middle frame (switches to text-to-video mode)",
+                    "hide_property": True,
                 },
                 allow_property=False,
                 allow_output=False,
@@ -161,7 +161,7 @@ class VeoImageToVideoGenerator(ControlNode):
             ParameterString(
                 name="model",
                 tooltip="The Veo model to use for generation.",
-                default_value=MODELS[0],
+                default_value=MODELS[1],
                 traits=[Options(choices=MODELS)],
                 allow_output=False,
             )
@@ -587,7 +587,7 @@ class VeoImageToVideoGenerator(ControlNode):
 
         if not GOOGLE_INSTALLED:
             self._log(
-                "ERROR: Required Google libraries are not installed. Please add 'google-cloud-aiplatform', 'google-generativeai', 'google-cloud-storage' to your library's dependencies."
+                "ERROR: Required Google libraries are not installed. Please add 'google-auth', 'google-cloud-aiplatform', 'google-cloud-storage', 'google-genai' to your library's dependencies."
             )
             return
             yield  # unreachable but makes the function a generator

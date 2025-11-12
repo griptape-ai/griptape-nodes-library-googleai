@@ -595,7 +595,7 @@ class VeoVideoGenerator(ControlNode):
 
         if not GOOGLE_INSTALLED:
             self._log(
-                "ERROR: Required Google libraries are not installed. Please add 'google-cloud-aiplatform', 'google-generativeai', 'google-cloud-storage' to your library's dependencies."
+                "ERROR: Required Google libraries are not installed. Please add 'google-auth', 'google-cloud-aiplatform', 'google-cloud-storage', 'google-genai' to your library's dependencies."
             )
             return
             yield  # unreachable but makes the function a generator

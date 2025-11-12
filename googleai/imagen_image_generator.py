@@ -350,7 +350,7 @@ class VertexAIImageGenerator(ControlNode):
         if not GOOGLE_INSTALLED:
             self.append_value_to_parameter(
                 "logs",
-                "ERROR: Required libraries are not installed. Please add 'google' to your library's dependencies.",
+                "ERROR: Required Google libraries are not installed. Please add 'google-auth', 'google-cloud-aiplatform', 'google-cloud-storage', 'google-genai' to your library's dependencies.",
             )
             return
 
