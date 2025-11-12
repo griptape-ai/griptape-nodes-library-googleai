@@ -32,10 +32,11 @@
         ],
         "dependencies": {
             "pip_dependencies": [
-                "google-cloud-aiplatform",
-                "google-generativeai",
-                "google-cloud-storage",
-                "requests"
+                "google-auth>=2.0.0",
+                "google-cloud-aiplatform>=1.0.0",
+                "google-cloud-storage>=2.19.0",
+                "google-genai>=0.5.0",
+                "requests>=2.32.3"
             ]
         }
     },
@@ -127,6 +128,15 @@
             }
         },
         {
+            "class_name": "VeoTextToVideoWithRef",
+            "file_path": "veo_text_to_video_with_ref.py",
+            "metadata": {
+                "category": "video/googleai",
+                "description": "Generates videos from text prompts with reference images using Google's Veo model. Only includes models that support reference images.",
+                "display_name": "Veo Text-To-Video (With Reference Images)"
+            }
+        },
+        {
             "class_name": "VideoDisplayNode",
             "file_path": "multi_video_display.py",
             "metadata": {
@@ -177,5 +187,10 @@
                 "icon": "Clock"
             }
         }
-    ]
+    ],
+    "workflows": [
+        "workflows/templates/frog_leaping.py",
+        "workflows/templates/frog_with_teeth.py"
+      ]
+    
 }
