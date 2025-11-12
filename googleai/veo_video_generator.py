@@ -17,7 +17,7 @@ from griptape_nodes.traits.options import Options
 try:
     from google import genai
     from google.cloud import aiplatform, storage
-    from google.genai.types import GenerateVideosConfig, Image, VideoGenerationReferenceImage
+    from google.genai.types import GenerateVideosConfig, Image, RawReferenceImage
     from google.oauth2 import service_account
 
     GOOGLE_INSTALLED = True
@@ -733,7 +733,7 @@ class VeoVideoGenerator(ControlNode):
                         try:
                             ref_base64, ref_mime = self._get_image_base64(ref_img)
                             reference_images.append(
-                                VideoGenerationReferenceImage(
+                                RawReferenceImage(
                                     image=Image(
                                         image_bytes=ref_base64,
                                         mime_type=ref_mime,
