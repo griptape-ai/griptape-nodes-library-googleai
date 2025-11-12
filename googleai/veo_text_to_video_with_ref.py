@@ -536,6 +536,11 @@ class VeoTextToVideoWithRef(ControlNode):
             if video_artifacts:
                 # Set the entire list of videos at once for grid display
                 self.parameter_output_values["video_artifacts"] = video_artifacts
+                # Proactively publish update to refresh UI
+                try:
+                    self.publish_update_to_parameter("video_artifacts", video_artifacts)
+                except Exception:
+                    pass
 
                 # Assign each video to its individual grid position output
                 for i, video in enumerate(video_artifacts):
@@ -544,6 +549,11 @@ class VeoTextToVideoWithRef(ControlNode):
                     param_name = f"video_{row}_{col}"
                     self.parameter_output_values[param_name] = video
                     self._log(f"📍 Assigned video {i + 1} to grid position {param_name}")
+                    # Publish each individual param to help UI binders update
+                    try:
+                        self.publish_update_to_parameter(param_name, video)
+                    except Exception:
+                        pass
 
                 self._log("\n🎉 SUCCESS! All videos processed.")
             else:
