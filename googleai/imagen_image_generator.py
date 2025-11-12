@@ -1,28 +1,42 @@
+import json
 import os
 import time
 from typing import Any, ClassVar
-from griptape_nodes.exe_types.core_types import Parameter, ParameterMode, ParameterGroup
-from griptape_nodes.exe_types.node_types import ControlNode, AsyncResult
-from griptape_nodes.traits.options import Options
-from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 
-import json
-from rich.pretty import pprint
+from griptape.artifacts import ImageUrlArtifact
+
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
+from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.options import Options
 
 try:
     from google import genai
-    from google.oauth2 import service_account
     from google.cloud import aiplatform, storage
     from google.genai import types
+    from google.oauth2 import service_account
+
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
 
+MODELS = [
+    "imagen-4.0-generate-001",
+    "imagen-4.0-fast-generate-001",
+    "imagen-4.0-ultra-generate-001",
+    "imagen-3.0-generate-002",
+    "imagen-3.0-generate-001",
+    "imagen-3.0-fast-generate-001",
+    "imagen-3.0-capability-001",
+]
+
+
 class VertexAIImageGenerator(ControlNode):
     # Class-level cache for GCS clients
     _gcs_client_cache: ClassVar[dict[str, Any]] = {}
-    
+
     # Service constants for configuration
     SERVICE = "GoogleAI"
     SERVICE_ACCOUNT_FILE_PATH = "GOOGLE_SERVICE_ACCOUNT_FILE_PATH"
@@ -30,26 +44,9 @@ class VertexAIImageGenerator(ControlNode):
     CREDENTIALS_JSON = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
 
     def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)    
+        super().__init__(**kwargs)
 
-        self.add_parameter(
-            Parameter(
-                name="location",
-                type="str",
-                tooltip="Google Cloud location for the generation job.",
-                default_value="us-central1",
-                traits=[Options(choices=[
-                    "us-central1",
-                    "us-east1", 
-                    "us-west1",
-                    "europe-west1",
-                    "europe-west4",
-                    "asia-east1"
-                ])],
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            )
-        )
-        
+        # Main Parameters - matching text-to-video node order
         self.add_parameter(
             Parameter(
                 name="prompt",
@@ -63,65 +60,66 @@ class VertexAIImageGenerator(ControlNode):
         )
 
         self.add_parameter(
-            Parameter(
-                name="model",
-                type="str",
-                tooltip="The Imagen model to use for image generation.",
-                default_value="imagen-3.0-generate-002",
-                traits=[Options(choices=[
-                    "imagen-4.0-generate-preview-06-06",
-                    "imagen-4.0-fast-generate-preview-06-06", 
-                    "imagen-4.0-ultra-generate-preview-06-06",
-                    "imagen-3.0-generate-002",
-                    "imagen-3.0-generate-001",
-                    "imagen-3.0-fast-generate-001",
-                    "imagen-3.0-capability-001",
-                    "imagegeneration@006",
-                    "imagegeneration@005",
-                    "imagegeneration@002"
-                ])],
-                allowed_modes={ParameterMode.PROPERTY},
-            )
-        )
-
-        self.add_parameter(
-            Parameter(
-                name="number_of_images",
-                type="int",
-                tooltip="Required. The number of images to generate.",
-                default_value=1,
-                ui_options={"hide": True},
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            )
-        )
-
-        self.add_parameter(
-            Parameter(
-                name="seed",
-                type="int",
-                tooltip="Optional. The random seed for image generation. This isn't available when addWatermark is set to true.",
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            )
-        )
-
-        self.add_parameter(
-            Parameter(
+            ParameterString(
                 name="negative_prompt",
-                type="str",
                 tooltip="Optional. A description of what to discourage in the generated images. Not supported by imagen-3.0-generate-002 and newer models.",
-                ui_options={"multiline": True},
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY, ParameterMode.OUTPUT},
+                multiline=False,
+                placeholder_text="Optional negative prompt",
+                allow_output=False,
             )
         )
 
         self.add_parameter(
-            Parameter(
+            ParameterString(
+                name="model",
+                tooltip="The Imagen model to use for image generation.",
+                default_value=MODELS[0],
+                traits=[Options(choices=MODELS)],
+                allow_output=False,
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
                 name="aspect_ratio",
-                type="str",
                 tooltip="Optional. The aspect ratio for the image.",
                 default_value="1:1",
-                traits=[Options(choices=["1:1", "16:9", "9:16", "4:3", "3:4"])],
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=["1:1", "16:9", "9:16", "4:3", "3:4"])},
+                allow_output=False,
+            )
+        )
+
+        self.add_parameter(
+            ParameterInt(
+                name="seed",
+                tooltip="Optional. The random seed for image generation. This isn't available when addWatermark is set to true.",
+                default_value=0,
+                allow_output=False,
+            )
+        )
+
+        self.add_parameter(
+            ParameterInt(
+                name="number_of_images",
+                tooltip="Required. The number of images to generate.",
+                default_value=1,
+                traits={Options(choices=[1, 2, 3, 4])},
+                ui_options={"hide": True},
+                allow_output=False,
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
+                name="location",
+                tooltip="Google Cloud location for the generation job.",
+                default_value="us-central1",
+                traits={
+                    Options(
+                        choices=["us-central1", "us-east1", "us-west1", "europe-west1", "europe-west4", "asia-east1"]
+                    )
+                },
+                allow_output=False,
             )
         )
 
@@ -136,7 +134,6 @@ class VertexAIImageGenerator(ControlNode):
         )
 
         with ParameterGroup(name="Advanced") as advanced_group:
-
             Parameter(
                 name="output_mime_type",
                 type="str",
@@ -168,7 +165,9 @@ class VertexAIImageGenerator(ControlNode):
                 type="str",
                 tooltip="Optional. Adds a filter level to safety filtering.",
                 default_value="block_medium_and_above",
-                traits=[Options(choices=["block_low_and_above", "block_medium_and_above", "block_only_high", "block_none"])],
+                traits=[
+                    Options(choices=["block_low_and_above", "block_medium_and_above", "block_only_high", "block_none"])
+                ],
                 allowed_modes={ParameterMode.PROPERTY},
             )
 
@@ -183,8 +182,6 @@ class VertexAIImageGenerator(ControlNode):
 
         advanced_group.ui_options = {"collapsed": True}  # Hide the advanced group by default.
         self.add_node_element(advanced_group)
-
-
 
         self.add_parameter(
             Parameter(
@@ -222,76 +219,80 @@ class VertexAIImageGenerator(ControlNode):
         """Read the project_id from the service account JSON file."""
         if not os.path.exists(service_account_file):
             raise FileNotFoundError(f"Service account file not found: {service_account_file}")
-        
-        with open(service_account_file, 'r') as f:
+
+        with open(service_account_file) as f:
             service_account_info = json.load(f)
-        
-        project_id = service_account_info.get('project_id')
+
+        project_id = service_account_info.get("project_id")
         if not project_id:
             raise ValueError("No 'project_id' found in the service account file.")
-        
+
         return project_id
 
     def _get_gcs_client(self, project_id: str, credentials):
         """Get a cached or new GCS client."""
         if project_id in self._gcs_client_cache:
             return self._gcs_client_cache[project_id]
-        else:
-            client = storage.Client(project=project_id, credentials=credentials)
-            self._gcs_client_cache[project_id] = client
-            return client
+        client = storage.Client(project=project_id, credentials=credentials)
+        self._gcs_client_cache[project_id] = client
+        return client
 
     def _download_from_gcs(self, gcs_uri: str, project_id: str, credentials) -> bytes:
         """Download video from GCS URI and return bytes."""
         self._log(f"📥 Downloading from GCS URI: {gcs_uri}")
-        
-        if not gcs_uri.startswith('gs://'):
+
+        if not gcs_uri.startswith("gs://"):
             raise ValueError(f"Invalid GCS URI: {gcs_uri}")
-        
-        path_parts = gcs_uri[5:].split('/', 1)
+
+        path_parts = gcs_uri[5:].split("/", 1)
         bucket_name = path_parts[0]
         blob_path = path_parts[1]
-        
+
         storage_client = self._get_gcs_client(project_id, credentials)
-        
+
         bucket = storage_client.bucket(bucket_name)
         blob = bucket.blob(blob_path)
-        
+
         return blob.download_as_bytes()
 
-    def _create_image_artifact(
-        self, image_bytes: bytes, output_format: str
-    ) -> ImageUrlArtifact:
+    def _create_image_artifact(self, image_bytes: bytes, output_format: str) -> ImageUrlArtifact:
         """Create ImageUrlArtifact using StaticFilesManager for efficient storage."""
         try:
             # Generate unique filename with timestamp and hash
             import hashlib
 
             timestamp = int(time.time() * 1000)  # milliseconds for uniqueness
-            content_hash = hashlib.md5(image_bytes).hexdigest()[
-                :8
-            ]  # Short hash of content
-            file_extension = output_format.lower().split('/')[1]
-            filename = (
-                f"VertexAIImageGenerator_{timestamp}_{content_hash}.{file_extension}"
-            )
+            content_hash = hashlib.md5(image_bytes).hexdigest()[:8]  # Short hash of content
+            file_extension = output_format.lower().split("/")[1]
+            filename = f"VertexAIImageGenerator_{timestamp}_{content_hash}.{file_extension}"
 
             # Save to managed file location and get URL
-            static_url = GriptapeNodes.StaticFilesManager().save_static_file(
-                image_bytes, filename
-            )
+            static_url = GriptapeNodes.StaticFilesManager().save_static_file(image_bytes, filename)
 
             return ImageUrlArtifact(value=static_url, name=f"text_to_image_{timestamp}")
         except Exception as e:
-            raise ValueError(f"Failed to create image artifact: {str(e)}")
+            raise ValueError(f"Failed to create image artifact: {e!s}")
 
-    def _generate_and_process_image(self, client, model, prompt, number_of_images, seed, negative_prompt, 
-                                   aspect_ratio, output_mime_type, language, add_watermark, 
-                                   safety_filter_level, person_generation, enhance_prompt) -> None:
+    def _generate_and_process_image(
+        self,
+        client,
+        model,
+        prompt,
+        number_of_images,
+        seed,
+        negative_prompt,
+        aspect_ratio,
+        output_mime_type,
+        language,
+        add_watermark,
+        safety_filter_level,
+        person_generation,
+        enhance_prompt,
+    ) -> None:
         """Generate image and process result - called via yield."""
         try:
             image = client.models.generate_images(
-                model=model, 
+                model=model,
                 prompt=prompt,
                 config=types.GenerateImagesConfig(
                     number_of_images=number_of_images,
@@ -303,30 +304,30 @@ class VertexAIImageGenerator(ControlNode):
                     add_watermark=add_watermark,
                     safety_filter_level=safety_filter_level,
                     person_generation=person_generation,
-                    enhancePrompt=enhance_prompt
-                )
+                    enhancePrompt=enhance_prompt,
+                ),
             )
 
             self._log("✅ Image generation completed!")
 
             # Process the generated images
-            if hasattr(image, 'generated_images') and image.generated_images:
+            if hasattr(image, "generated_images") and image.generated_images:
                 self._log(f"Processing {len(image.generated_images)} generated image(s)...")
-                
+
                 # Process the first image
                 gen_image = image.generated_images[0]
-                if hasattr(gen_image, 'image'):
+                if hasattr(gen_image, "image"):
                     img_obj = gen_image.image
-                    
+
                     # Access image bytes using the working method
-                    if hasattr(img_obj, 'image_bytes'):
+                    if hasattr(img_obj, "image_bytes"):
                         image_bytes = img_obj.image_bytes
                         self._log(f"✅ Retrieved image bytes: {len(image_bytes)} bytes")
-                        
+
                         # Create the image artifact
                         generated_image = self._create_image_artifact(image_bytes, output_mime_type)
                         self._log(f"✅ Created image artifact: {generated_image}")
-                        
+
                         # Set the output parameter
                         self.parameter_output_values["image"] = generated_image
                     else:
@@ -338,6 +339,7 @@ class VertexAIImageGenerator(ControlNode):
         except Exception as e:
             self._log(f"❌ An unexpected error occurred during image generation: {e}")
             import traceback
+
             self._log(traceback.format_exc())
             raise
 
@@ -346,9 +348,12 @@ class VertexAIImageGenerator(ControlNode):
 
     def _process(self):
         if not GOOGLE_INSTALLED:
-            self.append_value_to_parameter("logs", "ERROR: Required libraries are not installed. Please add 'google' to your library's dependencies.")
+            self.append_value_to_parameter(
+                "logs",
+                "ERROR: Required libraries are not installed. Please add 'google' to your library's dependencies.",
+            )
             return
-        
+
         # Get input values
         prompt = self.get_parameter_value("prompt")
         model = self.get_parameter_value("model")
@@ -375,7 +380,7 @@ class VertexAIImageGenerator(ControlNode):
 
             # Try service account file first
             service_account_file = GriptapeNodes.SecretsManager().get_secret(f"{self.SERVICE_ACCOUNT_FILE_PATH}")
-            
+
             if service_account_file and os.path.exists(service_account_file):
                 self._log("🔑 Using service account file for authentication.")
                 try:
@@ -391,13 +396,16 @@ class VertexAIImageGenerator(ControlNode):
                 self._log("🔑 Service account file not found, using individual credentials from settings.")
                 project_id = GriptapeNodes.SecretsManager().get_secret(f"{self.PROJECT_ID}")
                 credentials_json = GriptapeNodes.SecretsManager().get_secret(f"{self.CREDENTIALS_JSON}")
-                
+
                 if not project_id:
-                    raise ValueError("❌ GOOGLE_CLOUD_PROJECT_ID must be set in library settings when not using a service account file.")
-                
+                    raise ValueError(
+                        "❌ GOOGLE_CLOUD_PROJECT_ID must be set in library settings when not using a service account file."
+                    )
+
                 if credentials_json:
                     try:
                         import json
+
                         cred_dict = json.loads(credentials_json)
                         credentials = service_account.Credentials.from_service_account_info(cred_dict)
                         self._log("✅ JSON credentials authentication successful.")
@@ -406,13 +414,13 @@ class VertexAIImageGenerator(ControlNode):
                         raise
                 else:
                     self._log("🔑 Using Application Default Credentials (e.g., gcloud auth).")
-                
+
                 final_project_id = project_id
 
             self._log(f"Project ID: {final_project_id}")
             self._log("Initializing Vertex AI...")
             aiplatform.init(project=final_project_id, location=location, credentials=credentials)
-            
+
             self._log("Initializing Generative AI Client...")
             client = genai.Client(vertexai=True, project=final_project_id, location=location)
 
@@ -420,9 +428,19 @@ class VertexAIImageGenerator(ControlNode):
 
             # Call the image generation method directly
             self._generate_and_process_image(
-                client, model, prompt, number_of_images, seed, negative_prompt, 
-                aspect_ratio, output_mime_type, language, add_watermark, 
-                safety_filter_level, person_generation, enhance_prompt
+                client,
+                model,
+                prompt,
+                number_of_images,
+                seed,
+                negative_prompt,
+                aspect_ratio,
+                output_mime_type,
+                language,
+                add_watermark,
+                safety_filter_level,
+                person_generation,
+                enhance_prompt,
             )
 
         except ValueError as e:
@@ -433,7 +451,5 @@ class VertexAIImageGenerator(ControlNode):
         except Exception as e:
             self._log(f"❌ An unexpected error occurred: {e}")
             import traceback
+
             self._log(traceback.format_exc())
-
-
-

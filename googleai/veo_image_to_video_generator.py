@@ -1,12 +1,16 @@
 import json
 import os
 import time
+from typing import Any
 
 import requests
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
+from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
+from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
@@ -20,6 +24,70 @@ try:
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
+
+MODELS = [
+    "veo-3.1-fast-generate-preview",
+    "veo-3.1-generate-preview",
+    "veo-3.0-generate-001",
+    "veo-3.0-fast-generate-001",
+    "veo-2.0-generate-preview",
+    "veo-2.0-generate-exp",
+    "veo-2.0-generate-001",
+]
+
+# Model capabilities configuration
+# Maps model names to their supported features
+MODEL_CAPABILITIES = {
+    "veo-3.1-fast-generate-preview": {
+        "supports_last_frame": True,
+        "supports_reference_images": True,
+        "duration_choices": [4, 6, 8],
+        "duration_default": 8,
+        "version": "veo3",
+    },
+    "veo-3.1-generate-preview": {
+        "supports_last_frame": True,
+        "supports_reference_images": True,
+        "duration_choices": [4, 6, 8],
+        "duration_default": 8,
+        "version": "veo3",
+    },
+    "veo-3.0-generate-001": {
+        "supports_last_frame": False,
+        "supports_reference_images": False,
+        "duration_choices": [4, 6, 8],
+        "duration_default": 8,
+        "version": "veo3",
+    },
+    "veo-3.0-fast-generate-001": {
+        "supports_last_frame": False,
+        "supports_reference_images": False,
+        "duration_choices": [4, 6, 8],
+        "duration_default": 8,
+        "version": "veo3",
+    },
+    "veo-2.0-generate-preview": {
+        "supports_last_frame": False,
+        "supports_reference_images": False,
+        "duration_choices": [5, 6, 7, 8],
+        "duration_default": 8,
+        "version": "veo2",
+    },
+    "veo-2.0-generate-exp": {
+        "supports_last_frame": True,
+        "supports_reference_images": True,
+        "duration_choices": [5, 6, 7, 8],
+        "duration_default": 8,
+        "version": "veo2",
+    },
+    "veo-2.0-generate-001": {
+        "supports_last_frame": True,
+        "supports_reference_images": False,
+        "duration_choices": [5, 6, 7, 8],
+        "duration_default": 8,
+        "version": "veo2",
+    },
+}
 
 
 class VeoImageToVideoGenerator(ControlNode):
@@ -36,133 +104,116 @@ class VeoImageToVideoGenerator(ControlNode):
 
         # Main Parameters
         self.add_parameter(
-            Parameter(
+            ParameterImage(
                 name="image",
-                input_types=["ImageArtifact", "ImageUrlArtifact"],
-                type="ImageArtifact",
                 tooltip="The input image for video generation.",
-                allowed_modes={ParameterMode.INPUT},
+                allow_property=False,
+                allow_output=False,
             )
         )
 
-        # Optional last frame (only for 3.1 models)
+        # Optional last frame (for specific models)
         self.add_parameter(
-            Parameter(
+            ParameterImage(
                 name="last_frame",
-                input_types=["ImageArtifact", "ImageUrlArtifact"],
-                type="ImageArtifact",
-                tooltip="Optional: Final frame for interpolation (Veo 3.1 only).",
+                tooltip="Optional: Final frame for interpolation (supported by veo-2.0-generate-001, veo-2.0-generate-exp, veo-3.1-generate-preview, veo-3.1-fast-generate-preview).",
                 ui_options={
-                    "placeholder_text": "Optional last frame for Veo 3.1 interpolation",
-                    "hide_when": {
-                        "model": [
-                            "veo-3.0-generate-001",
-                            "veo-3.0-fast-generate-001",
-                            "veo-3.0-generate-preview",
-                            "veo-3.0-fast-generate-preview",
-                        ]
-                    },
+                    "placeholder_text": "Optional last frame for interpolation",
                 },
-                allowed_modes={ParameterMode.INPUT},
+                allow_property=False,
+                allow_output=False,
             )
         )
 
         self.add_parameter(
-            Parameter(
+            ParameterString(
                 name="prompt",
-                type="str",
                 tooltip="Optional: The text prompt for video generation to guide the animation.",
-                ui_options={"multiline": True, "placeholder_text": "Optional text prompt to guide the animation"},
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                multiline=True,
+                placeholder_text="Optional text prompt to guide the animation",
+                allow_output=False,
             )
         )
-
         self.add_parameter(
-            Parameter(
-                name="model",
-                type="str",
-                tooltip="The Veo model to use for generation.",
-                default_value="veo-3.1-generate-preview",
-                traits={
-                    Options(
-                        choices=[
-                            "veo-3.1-generate-preview",
-                            "veo-3.0-generate-001",
-                            "veo-3.0-fast-generate-001",
-                            "veo-3.0-generate-preview",
-                            "veo-3.0-fast-generate-preview",
-                        ]
-                    )
-                },
-                allowed_modes={ParameterMode.PROPERTY},
-            )
-        )
-
-        self.add_parameter(
-            Parameter(
+            ParameterString(
                 name="negative_prompt",
-                type="str",
                 tooltip="Optional: Text describing what you want to discourage the model from generating.",
-                ui_options={"multiline": True, "placeholder_text": "Optional negative prompt"},
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                multiline=False,
+                placeholder_text="Optional negative prompt",
+                allow_output=False,
             )
         )
-
         self.add_parameter(
-            Parameter(
-                name="seed",
-                type="int",
-                tooltip="Optional: Seed number for deterministic generation (0-4294967295).",
-                default_value=0,
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            ParameterString(
+                name="model",
+                tooltip="The Veo model to use for generation.",
+                default_value=MODELS[0],
+                traits=[Options(choices=MODELS)],
+                allow_output=False,
             )
         )
-
         self.add_parameter(
-            Parameter(
-                name="number_of_videos",
-                type="int",
-                tooltip="Number of videos to generate (sampleCount).",
-                default_value=1,
-                traits=[Options(choices=[1, 2, 3, 4])],
-                allowed_modes={ParameterMode.PROPERTY},
-            )
-        )
-
-        self.add_parameter(
-            Parameter(
+            ParameterString(
                 name="aspect_ratio",
-                type="str",
                 tooltip="Aspect ratio of the generated video. Note: 9:16 is not supported by veo-3.0-generate-preview.",
                 default_value="16:9",
-                traits=[Options(choices=["16:9", "9:16"])],
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=["16:9", "9:16"])},
+                allow_output=False,
             )
         )
 
         self.add_parameter(
-            Parameter(
+            ParameterString(
                 name="resolution",
-                type="str",
                 tooltip="Resolution of the generated video.",
                 default_value="720p",
-                traits=[Options(choices=["720p", "1080p"])],
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                traits={Options(choices=["720p", "1080p"])},
+                allow_output=False,
             )
         )
 
         self.add_parameter(
-            Parameter(
+            ParameterInt(
+                name="seed",
+                tooltip="Optional: Seed number for deterministic generation (0-4294967295).",
+                default_value=0,
+                allow_output=False,
+            )
+        )
+
+        # Duration parameter (choices vary by model)
+        default_model = self.get_parameter_value("model") or MODELS[0]
+        default_capabilities = MODEL_CAPABILITIES.get(default_model, MODEL_CAPABILITIES[MODELS[0]])
+        self.add_parameter(
+            ParameterInt(
+                name="duration",
+                tooltip="Duration of the generated video in seconds. Veo 2.0: 5-8 seconds. Veo 3.0: 4, 6, or 8 seconds.",
+                default_value=default_capabilities["duration_default"],
+                traits={Options(choices=default_capabilities["duration_choices"])},
+                allow_output=False,
+            )
+        )
+        self.add_parameter(
+            ParameterInt(
+                name="number_of_videos",
+                tooltip="Number of videos to generate (sampleCount).",
+                default_value=1,
+                allow_output=False,
+                traits={Options(choices=[1, 2, 3, 4])},
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
                 name="location",
-                type="str",
                 tooltip="Google Cloud location for the generation job.",
                 default_value="us-central1",
-                traits=[
+                traits={
                     Options(
                         choices=["us-central1", "us-east1", "us-west1", "europe-west1", "europe-west4", "asia-east1"]
                     )
-                ],
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                },
+                allow_output=False,
             )
         )
 
@@ -237,10 +288,75 @@ class VeoImageToVideoGenerator(ControlNode):
         logs_group.ui_options = {"hide": True}
         self.add_node_element(logs_group)
 
+        # Initialize parameter visibility based on default model
+        self._update_parameter_visibility_for_model(default_model)
+
+        # Initialize video output visibility based on default number of videos
+        default_num_videos = self.get_parameter_value("number_of_videos") or 1
+        self._update_video_output_visibility(default_num_videos)
+
+    def _update_parameter_visibility_for_model(self, model: str) -> None:
+        """Update parameter visibility and options based on the selected model."""
+        if model not in MODEL_CAPABILITIES:
+            return
+
+        capabilities = MODEL_CAPABILITIES[model]
+
+        # Update last_frame visibility
+        if capabilities["supports_last_frame"]:
+            self.show_parameter_by_name("last_frame")
+        else:
+            self.hide_parameter_by_name("last_frame")
+
+        # Update duration choices
+        current_duration = self.get_parameter_value("duration")
+        if current_duration in capabilities["duration_choices"]:
+            self._update_option_choices("duration", capabilities["duration_choices"], current_duration)
+        else:
+            # Set to default if current value is not in new choices
+            self._update_option_choices("duration", capabilities["duration_choices"], capabilities["duration_default"])
+
+    def _update_video_output_visibility(self, num_videos: int) -> None:
+        """Update video output parameter visibility based on number of videos."""
+        # Always show video_1_1 (first video)
+        self.show_parameter_by_name("video_1_1")
+
+        # Show/hide additional videos based on count
+        if num_videos >= 2:
+            self.show_parameter_by_name("video_1_2")
+        else:
+            self.hide_parameter_by_name("video_1_2")
+
+        if num_videos >= 3:
+            self.show_parameter_by_name("video_2_1")
+        else:
+            self.hide_parameter_by_name("video_2_1")
+
+        if num_videos >= 4:
+            self.show_parameter_by_name("video_2_2")
+        else:
+            self.hide_parameter_by_name("video_2_2")
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter.name == "model":
+            self._update_parameter_visibility_for_model(value)
+            self.show_parameter_by_name("video_artifacts")
+        elif parameter.name == "number_of_videos":
+            self._update_video_output_visibility(value)
+        return super().after_value_set(parameter, value)
+
     def _log(self, message: str):
         """Append a message to the logs output parameter."""
         print(message)
         self.append_value_to_parameter("logs", message + "\n")
+
+    def _reset_outputs(self) -> None:
+        """Clear output parameters so stale values don't persist across re-adds/reruns."""
+        try:
+            self.parameter_output_values["logs"] = ""
+        except Exception:
+            # Be defensive if the base class changes how outputs are stored
+            pass
 
     def _get_project_id(self, service_account_file: str) -> str:
         """Read the project_id from the service account JSON file."""
@@ -389,6 +505,7 @@ class VeoImageToVideoGenerator(ControlNode):
                         # Download the file handle so it can be saved locally
                         client.files.download(file=video.video)
                         import tempfile
+
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
                             tmp_path = tmp_file.name
                         # Save the downloaded handle to disk, then read bytes
@@ -445,6 +562,9 @@ class VeoImageToVideoGenerator(ControlNode):
             raise
 
     def process(self) -> AsyncResult:
+        # Clear outputs at the start of each run
+        self._reset_outputs()
+
         if not GOOGLE_INSTALLED:
             self._log(
                 "ERROR: Required Google libraries are not installed. Please add 'google-cloud-aiplatform', 'google-generativeai', 'google-cloud-storage' to your library's dependencies."
@@ -461,6 +581,7 @@ class VeoImageToVideoGenerator(ControlNode):
         num_videos = self.get_parameter_value("number_of_videos")
         aspect_ratio = self.get_parameter_value("aspect_ratio")
         resolution = self.get_parameter_value("resolution")
+        duration = self.get_parameter_value("duration")
 
         seed = self.get_parameter_value("seed")
         location = self.get_parameter_value("location")
@@ -469,6 +590,35 @@ class VeoImageToVideoGenerator(ControlNode):
         if not image_artifact:
             self._log("ERROR: Image is a required input.")
             return
+
+        # Handle dict input (can happen after serialization/deserialization)
+        if isinstance(image_artifact, dict):
+            try:
+                # Convert dict to ImageUrlArtifact
+                if image_artifact.get("type") == "ImageUrlArtifact":
+                    image_artifact = ImageUrlArtifact(value=image_artifact.get("value"))
+                elif "value" in image_artifact:
+                    # Try to create ImageUrlArtifact from dict value
+                    image_artifact = ImageUrlArtifact(value=image_artifact["value"])
+                else:
+                    raise ValueError("Dict does not contain valid image artifact data")
+            except Exception as e:
+                self._log(f"ERROR: Failed to convert dict to image artifact: {e}")
+                return
+
+        # Handle dict input for last_frame if present
+        if last_frame_artifact and isinstance(last_frame_artifact, dict):
+            try:
+                # Convert dict to ImageUrlArtifact
+                if last_frame_artifact.get("type") == "ImageUrlArtifact":
+                    last_frame_artifact = ImageUrlArtifact(value=last_frame_artifact.get("value"))
+                elif "value" in last_frame_artifact:
+                    last_frame_artifact = ImageUrlArtifact(value=last_frame_artifact["value"])
+                else:
+                    last_frame_artifact = None
+            except Exception as e:
+                self._log(f"ERROR: Failed to convert last_frame dict to image artifact: {e}")
+                last_frame_artifact = None
 
         # Validate aspect ratio for specific models
         if model == "veo-3.0-generate-preview" and aspect_ratio == "9:16":
@@ -532,11 +682,12 @@ class VeoImageToVideoGenerator(ControlNode):
             # Convert image to base64
             base64_data, mime_type = self._get_image_base64(image_artifact)
 
-            # Optional: last frame for 3.1 models
+            # Optional: last frame (check model capabilities)
             base64_last_frame = None
             mime_last_frame = None
-            if last_frame_artifact and isinstance(model, str) and model.startswith("veo-3.1"):
-                self._log("🪄 Using last_frame for Veo 3.1 interpolation...")
+            capabilities = MODEL_CAPABILITIES.get(model, {})
+            if last_frame_artifact and capabilities.get("supports_last_frame", False):
+                self._log("🪄 Using last_frame for interpolation...")
                 base64_last_frame, mime_last_frame = self._get_image_base64(last_frame_artifact)
 
             self._log(f"🎬 Generating video from image with prompt: '{prompt or 'No prompt provided'}'")
@@ -548,13 +699,20 @@ class VeoImageToVideoGenerator(ControlNode):
                 "number_of_videos": num_videos,
             }
 
-            # Only Veo 3.1 supports last_frame
-            if base64_last_frame and mime_last_frame and isinstance(model, str) and model.startswith("veo-3.1"):
+            # Add durationSeconds if provided
+            if duration:
+                config_kwargs["durationSeconds"] = duration
+
+            # Add last_frame if provided and supported
+            if base64_last_frame and mime_last_frame:
                 config_kwargs["last_frame"] = Image(
                     image_bytes=base64_last_frame,
                     mime_type=mime_last_frame,
                 )
 
+            # Build API parameters for image-to-video
+            # Image-to-video uses 'image' (start frame) and optionally 'last_frame' (end frame)
+            self._log("📋 Using image-to-video mode")
             api_params = {
                 "model": model,
                 "image": Image(
@@ -563,8 +721,7 @@ class VeoImageToVideoGenerator(ControlNode):
                 ),
                 "config": GenerateVideosConfig(**config_kwargs),
             }
-
-            # Add prompt if provided
+            # Prompt is optional for image-to-video
             if prompt:
                 api_params["prompt"] = prompt
 
