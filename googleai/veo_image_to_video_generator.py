@@ -285,7 +285,7 @@ class VeoImageToVideoGenerator(ControlNode):
                 ui_options={"multiline": True, "placeholder_text": "Logs"},
             )
 
-        logs_group.ui_options = {"hide": True}
+        logs_group.ui_options = {"collapsed": True}
         self.add_node_element(logs_group)
 
         # Initialize parameter visibility based on default model
