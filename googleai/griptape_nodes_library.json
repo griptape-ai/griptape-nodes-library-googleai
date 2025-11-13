@@ -189,8 +189,7 @@
         }
     ],
     "workflows": [
-        "workflows/templates/frog_leaping.py",
-        "workflows/templates/frog_with_teeth.py"
+        "workflows/templates/google_veo_frog_with_teeth.py"
       ]
     
 }
