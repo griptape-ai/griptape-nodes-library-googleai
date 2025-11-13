@@ -36,7 +36,7 @@ MODEL_CAPABILITIES = {
     "veo-3.1-generate-preview": {
         "max_reference_images": 3,
         "supports_reference_type_choice": False,  # Only supports "asset"
-        "duration_choices": [4, 6, 8],
+        "duration_choices": [8],
         "duration_default": 8,
         "version": "veo3",
     },
