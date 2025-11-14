@@ -8,7 +8,7 @@
 # node_types_used = [["Google AI Library", "GeminiImageGenerator"], ["Google AI Library", "VeoTextToVideoWithRef"], ["Griptape Nodes Library", "Note"]]
 # is_griptape_provided = true
 # is_template = true
-# image = "https://github.com/griptape-ai/griptape-nodes-library-googleai/blob/main/images/frog_with_teeth.webp"
+# image = "https://github.com/griptape-ai/griptape-nodes-library-googleai/blob/main/images/frog_with_teeth.webp?raw=true"
 # description = "Demonstrates Text to Video (With Reference Images) node with Google's Veo model.""
 # creation_date = 2025-11-11T01:35:50.850330Z
 # last_modified_date = 2025-11-13T22:53:45.282999Z
@@ -23,7 +23,6 @@ from griptape_nodes.retained_mode.events.flow_events import CreateFlowRequest
 from griptape_nodes.retained_mode.events.library_events import LoadLibrariesRequest
 from griptape_nodes.retained_mode.events.node_events import CreateNodeRequest
 from griptape_nodes.retained_mode.events.parameter_events import (
-    AddParameterToNodeRequest,
     SetParameterValueRequest,
 )
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
@@ -44,34 +43,33 @@ if not context_manager.has_current_workflow():
    would be difficult to serialize.
 """
 top_level_unique_values_dict = {
-    "9d6b341f-e315-48fc-8110-eccb62db9354": pickle.loads(
+    "b545fdac-c8b8-41ba-abb8-7860afc9e84c": pickle.loads(
         b"\x80\x04\x95\x13\x00\x00\x00\x00\x00\x00\x00\x8c\x0fLocal Execution\x94."
     ),
-    "a4e93fb2-cf3f-4754-94dd-f5758b0da624": pickle.loads(b"\x80\x04\x95\x04\x00\x00\x00\x00\x00\x00\x00\x8c\x00\x94."),
-    "828e3184-1fd5-47b1-9ea6-6e01941878b3": pickle.loads(
+    "1d9beaec-ec3e-4795-a74c-6d37e5f90813": pickle.loads(b"\x80\x04\x95\x04\x00\x00\x00\x00\x00\x00\x00\x8c\x00\x94."),
+    "4f6a996a-a34c-4201-a4a2-2df79b0d3682": pickle.loads(
         b"\x80\x04\x95q\x00\x00\x00\x00\x00\x00\x00\x8cmThis workflow demonstrates the use of Reference Images for the Veo Text to Video (With Reference Images) node\x94."
     ),
-    "83470805-8908-4878-9e1c-ba1e247b127b": pickle.loads(
+    "541f3ffa-95a4-45bb-98eb-35483746b0e1": pickle.loads(
         b"\x80\x04\x95N\x00\x00\x00\x00\x00\x00\x00\x8cJGenerate a video of the frog that takes into account the reference images.\x94."
     ),
-    "8ecc6ebb-87fe-45a7-870e-2b35249235ae": pickle.loads(
+    "1b171537-4b50-44f2-baef-d5da7e2370ca": pickle.loads(
         b"\x80\x04\x95%\x00\x00\x00\x00\x00\x00\x00\x8c!Create the initial starting image\x94."
     ),
-    "b5d8e1b2-72e1-4c0a-bd44-f8aee986b946": pickle.loads(
+    "f7ff9c6b-37fc-4b82-8164-67928878c2e4": pickle.loads(
         b"\x80\x04\x959\x00\x00\x00\x00\x00\x00\x00\x8c5Create something specific about the frog - like teeth\x94."
     ),
-    "701d9bfe-0fae-4581-9ea5-6dc93f624ef0": pickle.loads(
-        b"\x80\x04\x95l\x00\x00\x00\x00\x00\x00\x00\x8chFrog wistfully talking about its typical day, as if it's being interviewed.  Keep the same camera angle.\x94."
-    ),
-    "243b2ac4-49da-49fd-962c-3b57429db737": pickle.loads(
-        b"\x80\x04\x95C\x00\x00\x00\x00\x00\x00\x00\x8c?Give the frog a bit smile, but give it human teeth with braces.\x94."
-    ),
-    "81a29bbc-1b3f-4ab4-ab3f-6420083fed7e": pickle.loads(b"\x80\x04]\x94."),
-    "a275c698-02d5-4e4d-989f-f634fabf2b7e": pickle.loads(b"\x80\x04]\x94."),
-    "9b0b0c9f-6443-4dad-bcd3-c77b61e02548": pickle.loads(
+    "9b696160-12a6-4aef-a82a-23be280139d4": pickle.loads(
         b"\x80\x04\x95\x1d\x02\x00\x00\x00\x00\x00\x00X\x16\x02\x00\x00Extreme close-up nighttime shot of a tiny green tree frog clinging to a translucent jungle leaf, illuminated by soft backlighting that highlights the intricate veins of the leaf. The frog's textured skin glistens with dew droplets, showcasing stunning detail and vibrant green tones. Dappled light filters through the dense, dark jungle environment, creating a dramatic and moody atmosphere. Foreground dust particles float gently, adding depth and realism to the scene. A composition worthy of an award-winning nature magazine cover.\x94."
     ),
-    "f748300b-883c-4c7d-ab23-d7d73349fd23": pickle.loads(b"\x80\x04]\x94."),
+    "90f10c8c-f1b1-4130-8046-156f7b01f30e": pickle.loads(b"\x80\x04]\x94."),
+    "04194d5a-968d-44c8-80e5-301a2000b817": pickle.loads(
+        b"\x80\x04\x95E\x00\x00\x00\x00\x00\x00\x00\x8cAGive the frog a giant smile, and give it human teeth with braces.\x94."
+    ),
+    "2a800d96-ba32-4d49-ba4e-8d913a8a9c9c": pickle.loads(b"\x80\x04]\x94."),
+    "cab2ef82-f184-4c18-9432-a76076f0942a": pickle.loads(
+        b"\x80\x04\x95K\x00\x00\x00\x00\x00\x00\x00\x8cGIt's raining, and the frog loves it. It looks at the camera and smiles.\x94."
+    ),
 }
 
 "# Create the Flow, then do work within it as context."
@@ -195,14 +193,14 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
     ).node_name
     node4_name = GriptapeNodes.handle_request(
         CreateNodeRequest(
-            node_type="VeoTextToVideoWithRef",
+            node_type="GeminiImageGenerator",
             specific_library_name="Google AI Library",
-            node_name="Veo Text-To-Video (With Reference Images)",
+            node_name="Gemini Image Generator",
             metadata={
                 "library_node_metadata": NodeMetadata(
-                    category="video/googleai",
-                    description="Generates videos from text prompts with reference images using Google's Veo model. Only includes models that support reference images.",
-                    display_name="Veo Text-To-Video (With Reference Images)",
+                    category="image/googleai",
+                    description="Generates images using Google's Gemini models.",
+                    display_name="Gemini Image Generator",
                     tags=None,
                     icon=None,
                     color=None,
@@ -210,10 +208,9 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
                     deprecation=None,
                 ),
                 "library": "Google AI Library",
-                "node_type": "VeoTextToVideoWithRef",
-                "position": {"x": 2669.320246403087, "y": 4421.5610110848465},
-                "size": {"width": 996, "height": 1662},
-                "showaddparameter": False,
+                "node_type": "GeminiImageGenerator",
+                "position": {"x": 63.61828610454984, "y": 4449.382295809735},
+                "size": {"width": 608, "height": 1080},
             },
             initial_setup=True,
         )
@@ -242,34 +239,16 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             initial_setup=True,
         )
     ).node_name
-    with GriptapeNodes.ContextManager().node(node5_name):
-        GriptapeNodes.handle_request(
-            AddParameterToNodeRequest(
-                parameter_name="input_images_ParameterListUniqueParamID_9e60903a8305492fad0a5c97cd65f5be",
-                tooltip="Up to 3 input images (png/jpeg/webp, ≤ 7 MB each). These visual references are used by the model to guide image generation, similar to image-to-image generation.",
-                type="ImageArtifact",
-                input_types=["ImageArtifact", "ImageUrlArtifact"],
-                output_type="ImageArtifact",
-                ui_options={},
-                mode_allowed_input=True,
-                mode_allowed_property=True,
-                mode_allowed_output=False,
-                is_user_defined=True,
-                settable=True,
-                parent_container_name="input_images",
-                initial_setup=True,
-            )
-        )
     node6_name = GriptapeNodes.handle_request(
         CreateNodeRequest(
-            node_type="GeminiImageGenerator",
+            node_type="VeoTextToVideoWithRef",
             specific_library_name="Google AI Library",
-            node_name="Gemini Image Generator",
+            node_name="Veo Text-To-Video (With Reference Images)",
             metadata={
                 "library_node_metadata": NodeMetadata(
-                    category="image/googleai",
-                    description="Generates images using Google's Gemini models.",
-                    display_name="Gemini Image Generator",
+                    category="video/googleai",
+                    description="Generates videos from text prompts with reference images using Google's Veo model. Only includes models that support reference images.",
+                    display_name="Veo Text-To-Video (With Reference Images)",
                     tags=None,
                     icon=None,
                     color=None,
@@ -277,11 +256,9 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
                     deprecation=None,
                 ),
                 "library": "Google AI Library",
-                "node_type": "GeminiImageGenerator",
-                "position": {"x": 63.61828610454984, "y": 4449.382295809735},
-                "size": {"width": 608, "height": 1080},
-                "showaddparameter": False,
-                "category": "image/googleai",
+                "node_type": "VeoTextToVideoWithRef",
+                "position": {"x": 2669.320246403087, "y": 4421.5610110848465},
+                "size": {"width": 1008, "height": 2044},
             },
             initial_setup=True,
         )
@@ -292,9 +269,9 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
     ).flow_name
     GriptapeNodes.handle_request(
         CreateConnectionRequest(
-            source_node_name=node6_name,
+            source_node_name=node4_name,
             source_parameter_name="image",
-            target_node_name=node4_name,
+            target_node_name=node6_name,
             target_parameter_name="reference_image_1",
             initial_setup=True,
         )
@@ -303,17 +280,8 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
         CreateConnectionRequest(
             source_node_name=node5_name,
             source_parameter_name="image",
-            target_node_name=node4_name,
+            target_node_name=node6_name,
             target_parameter_name="reference_image_2",
-            initial_setup=True,
-        )
-    )
-    GriptapeNodes.handle_request(
-        CreateConnectionRequest(
-            source_node_name=node6_name,
-            source_parameter_name="image",
-            target_node_name=node5_name,
-            target_parameter_name="input_images_ParameterListUniqueParamID_9e60903a8305492fad0a5c97cd65f5be",
             initial_setup=True,
         )
     )
@@ -322,7 +290,7 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="execution_environment",
                 node_name=node0_name,
-                value=top_level_unique_values_dict["9d6b341f-e315-48fc-8110-eccb62db9354"],
+                value=top_level_unique_values_dict["b545fdac-c8b8-41ba-abb8-7860afc9e84c"],
                 initial_setup=True,
                 is_output=False,
             )
@@ -331,7 +299,7 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="job_group",
                 node_name=node0_name,
-                value=top_level_unique_values_dict["a4e93fb2-cf3f-4754-94dd-f5758b0da624"],
+                value=top_level_unique_values_dict["1d9beaec-ec3e-4795-a74c-6d37e5f90813"],
                 initial_setup=True,
                 is_output=False,
             )
@@ -340,7 +308,7 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="note",
                 node_name=node0_name,
-                value=top_level_unique_values_dict["828e3184-1fd5-47b1-9ea6-6e01941878b3"],
+                value=top_level_unique_values_dict["4f6a996a-a34c-4201-a4a2-2df79b0d3682"],
                 initial_setup=True,
                 is_output=False,
             )
@@ -350,7 +318,7 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="execution_environment",
                 node_name=node1_name,
-                value=top_level_unique_values_dict["9d6b341f-e315-48fc-8110-eccb62db9354"],
+                value=top_level_unique_values_dict["b545fdac-c8b8-41ba-abb8-7860afc9e84c"],
                 initial_setup=True,
                 is_output=False,
             )
@@ -359,7 +327,7 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="job_group",
                 node_name=node1_name,
-                value=top_level_unique_values_dict["a4e93fb2-cf3f-4754-94dd-f5758b0da624"],
+                value=top_level_unique_values_dict["1d9beaec-ec3e-4795-a74c-6d37e5f90813"],
                 initial_setup=True,
                 is_output=False,
             )
@@ -368,7 +336,7 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="note",
                 node_name=node1_name,
-                value=top_level_unique_values_dict["83470805-8908-4878-9e1c-ba1e247b127b"],
+                value=top_level_unique_values_dict["541f3ffa-95a4-45bb-98eb-35483746b0e1"],
                 initial_setup=True,
                 is_output=False,
             )
@@ -378,7 +346,7 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="execution_environment",
                 node_name=node2_name,
-                value=top_level_unique_values_dict["9d6b341f-e315-48fc-8110-eccb62db9354"],
+                value=top_level_unique_values_dict["b545fdac-c8b8-41ba-abb8-7860afc9e84c"],
                 initial_setup=True,
                 is_output=False,
             )
@@ -387,7 +355,7 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="job_group",
                 node_name=node2_name,
-                value=top_level_unique_values_dict["a4e93fb2-cf3f-4754-94dd-f5758b0da624"],
+                value=top_level_unique_values_dict["1d9beaec-ec3e-4795-a74c-6d37e5f90813"],
                 initial_setup=True,
                 is_output=False,
             )
@@ -396,7 +364,7 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="note",
                 node_name=node2_name,
-                value=top_level_unique_values_dict["8ecc6ebb-87fe-45a7-870e-2b35249235ae"],
+                value=top_level_unique_values_dict["1b171537-4b50-44f2-baef-d5da7e2370ca"],
                 initial_setup=True,
                 is_output=False,
             )
@@ -406,7 +374,7 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="execution_environment",
                 node_name=node3_name,
-                value=top_level_unique_values_dict["9d6b341f-e315-48fc-8110-eccb62db9354"],
+                value=top_level_unique_values_dict["b545fdac-c8b8-41ba-abb8-7860afc9e84c"],
                 initial_setup=True,
                 is_output=False,
             )
@@ -415,7 +383,7 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="job_group",
                 node_name=node3_name,
-                value=top_level_unique_values_dict["a4e93fb2-cf3f-4754-94dd-f5758b0da624"],
+                value=top_level_unique_values_dict["1d9beaec-ec3e-4795-a74c-6d37e5f90813"],
                 initial_setup=True,
                 is_output=False,
             )
@@ -424,7 +392,7 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="note",
                 node_name=node3_name,
-                value=top_level_unique_values_dict["b5d8e1b2-72e1-4c0a-bd44-f8aee986b946"],
+                value=top_level_unique_values_dict["f7ff9c6b-37fc-4b82-8164-67928878c2e4"],
                 initial_setup=True,
                 is_output=False,
             )
@@ -434,9 +402,27 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="prompt",
                 node_name=node4_name,
-                value=top_level_unique_values_dict["701d9bfe-0fae-4581-9ea5-6dc93f624ef0"],
+                value=top_level_unique_values_dict["9b696160-12a6-4aef-a82a-23be280139d4"],
                 initial_setup=True,
                 is_output=False,
+            )
+        )
+        GriptapeNodes.handle_request(
+            SetParameterValueRequest(
+                parameter_name="images",
+                node_name=node4_name,
+                value=top_level_unique_values_dict["90f10c8c-f1b1-4130-8046-156f7b01f30e"],
+                initial_setup=True,
+                is_output=True,
+            )
+        )
+        GriptapeNodes.handle_request(
+            SetParameterValueRequest(
+                parameter_name="logs",
+                node_name=node4_name,
+                value=top_level_unique_values_dict["1d9beaec-ec3e-4795-a74c-6d37e5f90813"],
+                initial_setup=True,
+                is_output=True,
             )
         )
     with GriptapeNodes.ContextManager().node(node5_name):
@@ -444,16 +430,7 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="prompt",
                 node_name=node5_name,
-                value=top_level_unique_values_dict["243b2ac4-49da-49fd-962c-3b57429db737"],
-                initial_setup=True,
-                is_output=False,
-            )
-        )
-        GriptapeNodes.handle_request(
-            SetParameterValueRequest(
-                parameter_name="input_images",
-                node_name=node5_name,
-                value=top_level_unique_values_dict["81a29bbc-1b3f-4ab4-ab3f-6420083fed7e"],
+                value=top_level_unique_values_dict["04194d5a-968d-44c8-80e5-301a2000b817"],
                 initial_setup=True,
                 is_output=False,
             )
@@ -462,7 +439,7 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="images",
                 node_name=node5_name,
-                value=top_level_unique_values_dict["a275c698-02d5-4e4d-989f-f634fabf2b7e"],
+                value=top_level_unique_values_dict["2a800d96-ba32-4d49-ba4e-8d913a8a9c9c"],
                 initial_setup=True,
                 is_output=True,
             )
@@ -471,7 +448,7 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="logs",
                 node_name=node5_name,
-                value=top_level_unique_values_dict["a4e93fb2-cf3f-4754-94dd-f5758b0da624"],
+                value=top_level_unique_values_dict["1d9beaec-ec3e-4795-a74c-6d37e5f90813"],
                 initial_setup=True,
                 is_output=True,
             )
@@ -481,26 +458,8 @@ with GriptapeNodes.ContextManager().flow(flow0_name):
             SetParameterValueRequest(
                 parameter_name="prompt",
                 node_name=node6_name,
-                value=top_level_unique_values_dict["9b0b0c9f-6443-4dad-bcd3-c77b61e02548"],
+                value=top_level_unique_values_dict["cab2ef82-f184-4c18-9432-a76076f0942a"],
                 initial_setup=True,
                 is_output=False,
-            )
-        )
-        GriptapeNodes.handle_request(
-            SetParameterValueRequest(
-                parameter_name="images",
-                node_name=node6_name,
-                value=top_level_unique_values_dict["f748300b-883c-4c7d-ab23-d7d73349fd23"],
-                initial_setup=True,
-                is_output=True,
-            )
-        )
-        GriptapeNodes.handle_request(
-            SetParameterValueRequest(
-                parameter_name="logs",
-                node_name=node6_name,
-                value=top_level_unique_values_dict["a4e93fb2-cf3f-4754-94dd-f5758b0da624"],
-                initial_setup=True,
-                is_output=True,
             )
         )
