@@ -1,6 +1,7 @@
 # /// script
 # dependencies = []
 #
+# [tool.griptape-nodes]
 # name = "google_veo_frog_with_teeth"
 # schema_version = "0.13.0"
 # engine_version_created_with = "0.63.0"
@@ -8,8 +9,8 @@
 # node_types_used = [["Google AI Library", "GeminiImageGenerator"], ["Google AI Library", "VeoTextToVideoWithRef"], ["Griptape Nodes Library", "Note"]]
 # is_griptape_provided = true
 # is_template = true
-# image = "https://github.com/griptape-ai/griptape-nodes-library-googleai/blob/main/images/frog_with_teeth.webp?raw=true"
-# description = "Demonstrates Text to Video (With Reference Images) node with Google's Veo model.""
+# image = "https://raw.githubusercontent.com/griptape-ai/griptape-nodes-library-googleai/refs/heads/main/images/frog_with_teeth.webp"
+# description = "Demonstrates Text to Video (With Reference Images) node with Google's Veo model."
 # creation_date = 2025-11-11T01:35:50.850330Z
 # last_modified_date = 2025-11-13T22:53:45.282999Z
 #
