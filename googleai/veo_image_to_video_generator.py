@@ -586,6 +586,9 @@ class VeoImageToVideoGenerator(ControlNode):
         seed = self.get_parameter_value("seed")
         location = self.get_parameter_value("location")
 
+        # Debug: Log aspect ratio value immediately after reading
+        self._log(f"🔍 DEBUG: Read aspect_ratio parameter value: '{aspect_ratio}' (type: {type(aspect_ratio).__name__})")
+
         # Handle dict input (can happen after serialization/deserialization)
         # Handle image_artifact dict
         if image_artifact and isinstance(image_artifact, dict):
@@ -693,16 +696,17 @@ class VeoImageToVideoGenerator(ControlNode):
 
             self._log(f"🎬 Generating video from image with prompt: '{prompt or 'No prompt provided'}'")
 
-            # Build the API call parameters
+            # Build the API call parameters (matching veo_video_generator.py pattern)
+            self._log(f"📐 Aspect ratio value: '{aspect_ratio}' (type: {type(aspect_ratio).__name__})")
             config_kwargs = {
                 "aspect_ratio": aspect_ratio,
                 "resolution": resolution,
                 "number_of_videos": num_videos,
             }
 
-            # Add durationSeconds if provided
+            # Add duration_seconds if provided (snake_case to match veo_video_generator)
             if duration:
-                config_kwargs["durationSeconds"] = duration
+                config_kwargs["duration_seconds"] = duration
 
             # Add last_frame if provided and supported
             if base64_last_frame and mime_last_frame:
@@ -711,13 +715,19 @@ class VeoImageToVideoGenerator(ControlNode):
                     mime_type=mime_last_frame,
                 )
 
+            self._log(f"📦 Config kwargs: {config_kwargs}")
+            config = GenerateVideosConfig(**config_kwargs)
+            # Log what's actually in the config object
+            config_dict = {k: getattr(config, k, None) for k in ['aspect_ratio', 'aspectRatio', 'resolution', 'duration_seconds', 'durationSeconds']}
+            self._log(f"✅ GenerateVideosConfig created. Config attributes: {config_dict}")
+
             api_params = {
                 "model": model,
                 "image": Image(
                     image_bytes=base64_data,
                     mime_type=mime_type,
                 ),
-                "config": GenerateVideosConfig(**config_kwargs),
+                "config": config,
             }
 
             # Add prompt if provided
