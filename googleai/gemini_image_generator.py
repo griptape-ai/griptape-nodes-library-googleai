@@ -100,7 +100,7 @@ class GeminiImageGenerator(ControlNode):
                 type="str",
                 tooltip="Gemini model for image generation.",
                 default_value="gemini-2.5-flash-image",
-                traits=[Options(choices=["gemini-2.5-flash-image", "gemini-2.5-flash-image-preview"])],
+                traits=[Options(choices=["gemini-2.5-flash-image", "gemini-2.5-flash-image-preview", "gemini-3-pro-image-preview"])],
                 allowed_modes={ParameterMode.PROPERTY},
             )
         )
