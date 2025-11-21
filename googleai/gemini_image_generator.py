@@ -1,44 +1,26 @@
 import base64
+import io as _io
 import json
-import os
+import logging
 import time
-from typing import Any
+from pathlib import Path
+from typing import Any, ClassVar
 
+import requests
+from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 from griptape.artifacts import (
     BlobArtifact,
     ImageArtifact,
     ImageUrlArtifact,
     TextArtifact,
 )
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
-try:
-    from google.auth.transport.requests import Request
-    from google.oauth2 import service_account
-
-    GOOGLE_AUTH_INSTALLED = True
-except ImportError:
-    GOOGLE_AUTH_INSTALLED = False
-
-try:
-    import requests
-
-    REQUESTS_INSTALLED = True
-except Exception:
-    REQUESTS_INSTALLED = False
-
-try:
-    import io as _io
-
-    from PIL import Image as PILImage
-
-    PIL_INSTALLED = True
-except Exception:
-    PIL_INSTALLED = False
+logger = logging.getLogger(__name__)
 
 MODELS = []
 
@@ -58,14 +40,20 @@ class GeminiImageGenerator(ControlNode):
     SERVICE_ACCOUNT_FILE_PATH = "GOOGLE_SERVICE_ACCOUNT_FILE_PATH"
     PROJECT_ID = "GOOGLE_CLOUD_PROJECT_ID"
     CREDENTIALS_JSON = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
+    SUPPORTED_MODELS: ClassVar[list[str]] = [
+        "gemini-2.5-flash-image",
+        "gemini-2.5-flash-image-preview",
+        "gemini-3-pro-image-preview",
+    ]
 
     # Model constraints (from model card)
-    MAX_PROMPT_IMAGES = 3
-    MAX_PROMPT_DOCS = 3
-    MAX_IMAGE_BYTES = 7 * 1024 * 1024  # 7 MB
-    MAX_DOC_BYTES = 50 * 1024 * 1024  # 50 MB
-    ALLOWED_IMAGE_MIME = {"image/png", "image/jpeg", "image/webp"}
-    ALLOWED_DOC_MIME = {"application/pdf", "text/plain"}
+    MAX_PROMPT_IMAGES: ClassVar[int] = 3
+    MAX_PROMPT_DOCS: ClassVar[int] = 3
+    MAX_IMAGE_BYTES: ClassVar[int] = 7 * 1024 * 1024  # 7 MB
+    MAX_DOC_BYTES: ClassVar[int] = 50 * 1024 * 1024  # 50 MB
+    ALLOWED_IMAGE_MIME: ClassVar[set[str]] = {"image/png", "image/jpeg", "image/webp"}
+    ALLOWED_DOC_MIME: ClassVar[set[str]] = {"application/pdf", "text/plain"}
+    MAX_TEXT_PREVIEW_LENGTH: ClassVar[int] = 200  # Max length for text preview in logs
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -77,7 +65,7 @@ class GeminiImageGenerator(ControlNode):
                 type="str",
                 tooltip="Google Cloud location for Gemini image generation.",
                 default_value="us-central1",
-                traits=[Options(choices=["us-central1", "europe-west1", "asia-southeast1", "global"])],
+                traits={Options(choices=["us-central1", "europe-west1", "asia-southeast1", "global"])},
                 allowed_modes={ParameterMode.PROPERTY},
             )
         )
@@ -100,7 +88,7 @@ class GeminiImageGenerator(ControlNode):
                 type="str",
                 tooltip="Gemini model for image generation.",
                 default_value="gemini-2.5-flash-image",
-                traits=[Options(choices=["gemini-2.5-flash-image", "gemini-2.5-flash-image-preview"])],
+                traits={Options(choices=self.SUPPORTED_MODELS)},
                 allowed_modes={ParameterMode.PROPERTY},
             )
         )
@@ -112,7 +100,18 @@ class GeminiImageGenerator(ControlNode):
                 type="str",
                 tooltip="Aspect ratio for generated images.",
                 default_value="16:9",
-                traits=[Options(choices=["1:1", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"])],
+                traits={Options(choices=["1:1", "3:2", "2:3", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"])},
+                allowed_modes={ParameterMode.PROPERTY},
+            )
+        )
+
+        self.add_parameter(
+            Parameter(
+                name="resolution",
+                type="str",
+                tooltip="Resolution for generated images.",
+                default_value="1K",
+                traits={Options(choices=["1K", "2K", "4K"])},
                 allowed_modes={ParameterMode.PROPERTY},
             )
         )
@@ -122,7 +121,7 @@ class GeminiImageGenerator(ControlNode):
             Parameter(
                 name="temperature",
                 type="float",
-                tooltip="Sampling temperature for image generation (0.0–1.0). Higher values increase randomness.",
+                tooltip="Sampling temperature for image generation (0.0-1.0). Higher values increase randomness.",
                 default_value=1.0,
                 allowed_modes={ParameterMode.PROPERTY},
             )
@@ -131,7 +130,7 @@ class GeminiImageGenerator(ControlNode):
             Parameter(
                 name="top_p",
                 type="float",
-                tooltip="Top-p nucleus sampling (0.0–1.0).",
+                tooltip="Top-p nucleus sampling (0.0-1.0).",
                 default_value=0.95,
                 allowed_modes={ParameterMode.PROPERTY},
             )
@@ -140,7 +139,7 @@ class GeminiImageGenerator(ControlNode):
             Parameter(
                 name="candidate_count",
                 type="int",
-                tooltip="Number of candidates to sample (1–8).",
+                tooltip="Number of candidates to sample (1-8).",
                 default_value=1,
                 allowed_modes={ParameterMode.PROPERTY},
                 ui_options={"hide": True},
@@ -151,7 +150,7 @@ class GeminiImageGenerator(ControlNode):
         self.add_parameter(
             ParameterList(
                 name="input_images",
-                tooltip="Up to 3 input images (png/jpeg/webp, ≤ 7 MB each). These visual references are used by the model to guide image generation, similar to image-to-image generation.",
+                tooltip=f"Up to 3 input images (png/jpeg/webp, ≤ 7 MB each). These visual references are used by the model to guide image generation, similar to image-to-image generation.",
                 input_types=["ImageArtifact", "ImageUrlArtifact"],
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
@@ -164,6 +163,26 @@ class GeminiImageGenerator(ControlNode):
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
+        # object_reference_images
+        self.add_parameter(
+            ParameterList(
+                name="object_reference_images",
+                tooltip="Up to 6 images of high fidelity objects to be included in the final output. Supported formats: png, jpeg, webp. Max size: 7 MB each.",
+                input_types=["ImageArtifact", "ImageUrlArtifact"],
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={"hide": True},
+            )
+        ) 
+        # human reference_images
+        self.add_parameter(
+            ParameterList(
+                name="human_reference_images",
+                tooltip="Up to 5 images of humans to to maintain character consistency. Supported formats: png, jpeg, webp. Max size: 7 MB each.",
+                input_types=["ImageArtifact", "ImageUrlArtifact"],
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                ui_options={"hide": True},
+            )
+        )
 
         # ===== Output =====
         self.add_parameter(
@@ -172,6 +191,16 @@ class GeminiImageGenerator(ControlNode):
                 tooltip="Generated image with cached data",
                 output_type="ImageUrlArtifact",
                 allowed_modes={ParameterMode.OUTPUT},
+            )
+        )
+
+        self.add_parameter(
+            Parameter(
+                name="thought_images",
+                tooltip="The images generated during the thinking process.",
+                output_type="list[ImageUrlArtifact]",
+                allowed_modes={ParameterMode.OUTPUT},
+                ui_options={"hide": True},
             )
         )
 
@@ -199,8 +228,8 @@ class GeminiImageGenerator(ControlNode):
         self._reset_outputs()
 
     # ---------- Utilities ----------
-    def _log(self, message: str):
-        print(message)
+    def _log(self, message: str) -> None:
+        logger.info(message)
         self.append_value_to_parameter("logs", message + "\n")
 
     def _reset_outputs(self) -> None:
@@ -211,12 +240,14 @@ class GeminiImageGenerator(ControlNode):
             self.parameter_output_values["logs"] = ""
         except Exception:
             # Be defensive if the base class changes how outputs are stored
-            pass
+            logger.exception("Failed to reset outputs.")
 
     def _get_project_id(self, service_account_file: str) -> str:
-        if not os.path.exists(service_account_file):
-            raise FileNotFoundError(f"Service account file not found: {service_account_file}")
-        with open(service_account_file) as f:
+        path = Path(service_account_file)
+        if not path.exists():
+            msg = f"Service account file not found: {service_account_file}"
+            raise FileNotFoundError(msg)
+        with path.open() as f:
             return json.load(f).get("project_id")
 
     def _create_image_artifact(self, image_bytes: bytes, mime_type: str) -> ImageUrlArtifact:
@@ -232,11 +263,18 @@ class GeminiImageGenerator(ControlNode):
         filename = f"GeminiImage_{timestamp}_{content_hash}.{ext}"
         static_url = GriptapeNodes.StaticFilesManager().save_static_file(image_bytes, filename)
         return ImageUrlArtifact(value=static_url, name=f"gemini_image_{timestamp}")
+    
+    def _get_number_of_supported_input_images(self, model: str) -> int:
+        if model == "gemini-3-pro-image-preview":
+            self.MAX_PROMPT_IMAGES = 14
+        else:
+            self.MAX_PROMPT_IMAGES = 3
+
+        return self.MAX_PROMPT_IMAGES
+
 
     # ---- Artifact → (bytes, mime) helpers ----
     def _fetch_image_url_bytes(self, url: str) -> tuple[bytes, str]:
-        if not REQUESTS_INSTALLED:
-            raise RuntimeError("`requests` is required to fetch ImageUrlArtifact URLs.")
         resp = requests.get(url, timeout=30)
         resp.raise_for_status()
         mime = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
@@ -249,7 +287,8 @@ class GeminiImageGenerator(ControlNode):
             return art.value, mime
         if isinstance(art, ImageUrlArtifact):
             return self._fetch_image_url_bytes(art.value)
-        raise TypeError("Unsupported image artifact type.")
+        msg = "Unsupported image artifact type."
+        raise TypeError(msg)
 
     def _file_artifact_to_bytes_mime(self, art: Any) -> tuple[bytes, str]:
         if isinstance(art, TextArtifact):
@@ -262,15 +301,14 @@ class GeminiImageGenerator(ControlNode):
                 # Fallback guess by simple sniff
                 mime = "application/pdf" if getattr(art, "name", "").lower().endswith(".pdf") else "text/plain"
             return data, mime
-        raise TypeError("Unsupported file artifact type.")
+        msg = "Unsupported file artifact type."
+        raise TypeError(msg)
 
     def _shrink_image_to_limit(self, image_bytes: bytes, mime_type: str, byte_limit: int) -> tuple[bytes, str]:
         """Best-effort shrink using Pillow to ensure <= byte_limit. Returns (bytes, mime)."""
-        if not PIL_INSTALLED:
-            self._log("ℹ️ Pillow not installed; cannot downscale large images. Install 'Pillow' to enable.")
-            return image_bytes, mime_type
-
         try:
+            from PIL import Image as PILImage
+
             img = PILImage.open(_io.BytesIO(image_bytes))
             img = img.convert("RGBA") if img.mode in ("P", "LA") else img
             # Prefer WEBP for better compression and alpha support
@@ -307,31 +345,62 @@ class GeminiImageGenerator(ControlNode):
                     data = buf.getvalue()
                     if len(data) <= byte_limit:
                         return data, "image/jpeg"
+        except ImportError:
+            self._log("ℹ️ Pillow not installed; cannot downscale large images. Install 'Pillow' to enable.")
         except Exception as e:
             self._log(f"⚠️ Downscale failed: {e}")
         return image_bytes, mime_type
 
-    def _get_access_token(self, credentials) -> str:
+    def _get_access_token(self, credentials: Any) -> str:
         """Get access token from credentials."""
         if not credentials.valid:
             credentials.refresh(Request())
         return credentials.token
 
+    # ----- Parameter processing ----------
+    def after_value_set(
+        self,
+        parameter: Parameter,  # noqa: ARG002
+        value: Any,  # noqa: ARG002
+    ) -> None:
+        if parameter.name == "model":
+            self._set_parameter_visibility(
+                "resolution",
+                visible=(value == "gemini-3-pro-image-preview"),
+            )
+            self._set_parameter_visibility(
+                "human_reference_images",
+                visible=(value == "gemini-3-pro-image-preview"),
+            )
+            self._set_parameter_visibility(
+                "object_reference_images",
+                visible=(value == "gemini-3-pro-image-preview"),
+            )
+            self._set_parameter_visibility(
+                "input_images",
+                visible=(value != "gemini-3-pro-image-preview"),
+            )
+            self._set_parameter_visibility(
+                "thought_images",
+                visible=(value == "gemini-3-pro-image-preview"),
+            )
+
     # ---------- Core generation ----------
     def _generate_and_process(
         self,
-        credentials,
-        project_id,
-        location,
-        model,
-        prompt,
-        input_images,
-        input_files,
-        temperature,
-        top_p,
-        candidate_count,
-        aspect_ratio,
-    ):
+        credentials: Any,
+        project_id: str,
+        location: str,
+        model: str,
+        prompt: str | None,
+        input_images: Any,
+        input_files: Any,
+        temperature: float,
+        top_p: float,
+        candidate_count: int,
+        aspect_ratio: str,
+        resolution: str | None = None,
+    ) -> None:
         # Build parts list for REST API
         parts: list[dict] = []
 
@@ -343,9 +412,10 @@ class GeminiImageGenerator(ControlNode):
         if not isinstance(images, list):
             images = [images]
         kept = 0
+        self._get_number_of_supported_input_images(model)
         for img_idx, img_art in enumerate(images):
             if kept >= self.MAX_PROMPT_IMAGES:
-                self._log("ℹ️ Only the first 3 input images are used.")
+                self._log(f"⚠️ Only the first {self.MAX_PROMPT_IMAGES} input images are used.")
                 break
             try:
                 b, mime = self._image_artifact_to_bytes_mime(img_art)
@@ -357,7 +427,7 @@ class GeminiImageGenerator(ControlNode):
                 if len(b) > self.MAX_IMAGE_BYTES:
                     img_name = getattr(img_art, "name", f"image_{img_idx + 1}")
                     size_mb = len(b) / (1024 * 1024)
-                    self._log(f"ℹ️ Image '{img_name}' is {size_mb:.1f} MB; attempting to downscale to ≤ 7 MB...")
+                    self._log(f"[Info] Image '{img_name}' is {size_mb:.1f} MB; attempting to downscale to <= 7 MB...")
                     b2, mime2 = self._shrink_image_to_limit(b, mime, self.MAX_IMAGE_BYTES)
                     if len(b2) <= self.MAX_IMAGE_BYTES:
                         new_mb = len(b2) / (1024 * 1024)
@@ -380,7 +450,7 @@ class GeminiImageGenerator(ControlNode):
         kept = 0
         for doc_idx, doc_art in enumerate(docs):
             if kept >= self.MAX_PROMPT_DOCS:
-                self._log("ℹ️ Only the first 3 input files are used.")
+                self._log(f"⚠️ Only the first {self.MAX_PROMPT_DOCS} input files are used.")
                 break
             try:
                 b, mime = self._file_artifact_to_bytes_mime(doc_art)
@@ -433,7 +503,7 @@ class GeminiImageGenerator(ControlNode):
                 "topP": eff_top_p,
                 "candidateCount": eff_candidates,
                 "response_modalities": ["TEXT", "IMAGE"],
-                "image_config": {"aspect_ratio": aspect_ratio},
+                "image_config": {"aspect_ratio": aspect_ratio, **({"imageSize": resolution} if resolution else {})},
             },
         }
 
@@ -442,6 +512,8 @@ class GeminiImageGenerator(ControlNode):
         self._log(f"  • Top-p: {eff_top_p}")
         self._log(f"  • Candidate count: {eff_candidates}")
         self._log(f"  • Aspect ratio: {aspect_ratio}")
+        if resolution:
+            self._log(f"  • Resolution: {resolution}")
 
         # Debug payload (redacted to avoid logging raw base64)
         try:
@@ -457,7 +529,8 @@ class GeminiImageGenerator(ControlNode):
                         )
                     elif "text" in part:
                         text_val = part.get("text", "")
-                        preview_parts.append({"text": (text_val[:200] + ("..." if len(text_val) > 200 else ""))})
+                        max_len = self.MAX_TEXT_PREVIEW_LENGTH
+                        preview_parts.append({"text": (text_val[:max_len] + ("..." if len(text_val) > max_len else ""))})
                 contents_preview.append({"role": msg.get("role"), "parts": preview_parts})
             payload_preview = {"contents": contents_preview, "generation_config": payload.get("generation_config")}
             self._log("📦 Payload preview:\n" + json.dumps(payload_preview, indent=2))
@@ -471,8 +544,6 @@ class GeminiImageGenerator(ControlNode):
         headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
 
         self._log("🧠 Calling Gemini generateContent API...")
-        if not REQUESTS_INSTALLED:
-            raise RuntimeError("`requests` library is required for REST API calls.")
 
         response = requests.post(api_endpoint, headers=headers, json=payload, timeout=120)
         response.raise_for_status()
@@ -481,6 +552,7 @@ class GeminiImageGenerator(ControlNode):
 
         # Parse outputs from REST API JSON response
         all_images = []
+        thought_images = []
         candidates = response_data.get("candidates", [])
         for cand in candidates:
             content = cand.get("content", {})
@@ -499,7 +571,10 @@ class GeminiImageGenerator(ControlNode):
                         # Decode base64
                         data = base64.b64decode(data_b64)
                         art = self._create_image_artifact(data, mime)
-                        all_images.append(art)
+                        if "thought" in part:
+                            thought_images.append(art)
+                        else:
+                            all_images.append(art)
 
         # Save all images to outputs
         if all_images:
@@ -517,18 +592,15 @@ class GeminiImageGenerator(ControlNode):
             # No images returned: clear outputs
             self.parameter_output_values["image"] = None
             self.parameter_output_values["images"] = []
-            self._log("ℹ️ No image outputs returned.")
+            self._log("i No image outputs returned.")
 
     # ---------- Node entrypoints ----------
     def process(self) -> AsyncResult[None]:
         yield lambda: self._process()
 
-    def _process(self):
+    def _process(self) -> None:
         # Clear outputs at the start of each run
         self._reset_outputs()
-        if not GOOGLE_AUTH_INSTALLED:
-            self._log("ERROR: Missing Google auth libraries. Install `google-auth`.")
-            return
 
         # Inputs
         prompt = self.get_parameter_value("prompt")
@@ -536,13 +608,42 @@ class GeminiImageGenerator(ControlNode):
         location = self.get_parameter_value("location")
         aspect_ratio = self.get_parameter_value("aspect_ratio")
 
+        input_images_param = self.get_parameter_by_name("input_images")
         input_images = self.get_parameter_value("input_images")
+        if input_images_param and input_images_param.ui_options.get("hide", True):
+            input_images = []
+
         input_files = self.get_parameter_value("input_files")
 
         temperature = self.get_parameter_value("temperature")
         top_p = self.get_parameter_value("top_p")
         candidate_count = self.get_parameter_value("candidate_count")
 
+        resolution_param = self.get_parameter_by_name("resolution")
+        resolution = self.get_parameter_value("resolution")
+        if resolution_param and resolution_param.ui_options.get("hide", True):
+            resolution = None
+
+        object_reference_images_param = self.get_parameter_by_name("object_reference_images")
+        object_reference_images = self.get_parameter_value("object_reference_images")
+        if object_reference_images_param and not object_reference_images_param.ui_options.get("hide", True):
+            if object_reference_images:
+                if not isinstance(object_reference_images, list):
+                    object_reference_images = [object_reference_images]
+                if len(object_reference_images) > 6:
+                    self._log(f"⚠️ Only the first 6 object reference images are used.")
+                input_images.extend(object_reference_images[:6])
+
+        human_reference_images_param = self.get_parameter_by_name("human_reference_images")
+        human_reference_images = self.get_parameter_value("human_reference_images")
+        if human_reference_images_param and not human_reference_images_param.ui_options.get("hide", True):
+            if human_reference_images:
+                if not isinstance(human_reference_images, list):
+                    human_reference_images = [human_reference_images]
+                if len(human_reference_images) > 5:
+                    self._log(f"⚠️ Only the first 5 human reference images are used.")
+                input_images.extend(human_reference_images[:5])
+        
         if not prompt and not input_images and not input_files:
             # Clear outputs on validation failure
             self.parameter_output_values["image"] = None
@@ -556,7 +657,7 @@ class GeminiImageGenerator(ControlNode):
             project_id = None
             credentials = None
 
-            if service_account_file and os.path.exists(service_account_file):
+            if service_account_file and Path(service_account_file).exists():
                 project_id = self._get_project_id(service_account_file)
                 credentials = service_account.Credentials.from_service_account_file(
                     service_account_file, scopes=["https://www.googleapis.com/auth/cloud-platform"]
@@ -573,10 +674,12 @@ class GeminiImageGenerator(ControlNode):
                     project_id = cred_dict.get("project_id")
                     self._log(f"🔑 Authenticated with JSON credentials for project '{project_id}'.")
                 else:
-                    raise ValueError("No credentials provided. Configure service account file or credentials JSON.")
+                    msg = "No credentials provided. Configure service account file or credentials JSON."
+                    raise ValueError(msg)
 
             if not project_id:
-                raise ValueError("Could not determine project ID from credentials.")
+                msg = "Could not determine project ID from credentials."
+                raise ValueError(msg)
 
             self._log("🚀 Starting Gemini image generation...")
             self._generate_and_process(
@@ -591,8 +694,13 @@ class GeminiImageGenerator(ControlNode):
                 top_p=top_p,
                 candidate_count=candidate_count,
                 aspect_ratio=aspect_ratio,
+                resolution=resolution,
             )
-
+        except requests.HTTPError as http_err:
+            self._log(f"❌ HTTP error: {http_err.response.status_code} - {http_err.response.text}")
+            # Ensure stale outputs aren't left behind on errors
+            self.parameter_output_values["image"] = None
+            self.parameter_output_values["images"] = []
         except Exception as e:
             self._log(f"❌ Error: {e}")
             import traceback
