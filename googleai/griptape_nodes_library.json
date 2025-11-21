@@ -1,195 +1,192 @@
 {
-    "name": "Google AI Library",
-    "library_schema_version": "0.1.0",
-    "settings": [
-        {
-            "description": "Google Cloud authentication settings for AI services",
-            "category": "app_events.on_app_initialization_complete",
-            "contents": {
-                "GOOGLE_CLOUD_BUCKET_NAME": "griptape-nodes",
-                "secrets_to_register": [
-                    "GOOGLE_SERVICE_ACCOUNT_FILE_PATH",
-                    "GOOGLE_CLOUD_PROJECT_ID",
-                    "GOOGLE_APPLICATION_CREDENTIALS_JSON"
-                ]
-            }
-        }
+  "name": "Google AI Library",
+  "library_schema_version": "0.1.0",
+  "settings": [
+    {
+      "description": "Google Cloud authentication settings for AI services",
+      "category": "app_events.on_app_initialization_complete",
+      "contents": {
+        "GOOGLE_CLOUD_BUCKET_NAME": "griptape-nodes",
+        "secrets_to_register": [
+          "GOOGLE_SERVICE_ACCOUNT_FILE_PATH",
+          "GOOGLE_CLOUD_PROJECT_ID",
+          "GOOGLE_APPLICATION_CREDENTIALS_JSON"
+        ]
+      }
+    }
+  ],
+  "metadata": {
+    "author": "Griptape",
+    "description": "A Griptape Nodes library for interacting with Google AI services like Veo and Lyria.",
+    "url": "www.griptape.ai",
+    "library_version": "0.1.0",
+    "engine_version": "0.44.0",
+    "tags": [
+      "Griptape",
+      "Google",
+      "AI",
+      "Veo",
+      "Lyria",
+      "Video Generation",
+      "Audio Generation"
     ],
-    "metadata": {
-        "author": "Griptape",
-        "description": "A Griptape Nodes library for interacting with Google AI services like Veo and Lyria.",
-        "url": "www.griptape.ai",
-        "library_version": "0.1.0",
-        "engine_version": "0.44.0",
-        "tags": [
-            "Griptape",
-            "Google",
-            "AI",
-            "Veo",
-            "Lyria",
-            "Video Generation",
-            "Audio Generation"
-        ],
-        "dependencies": {
-            "pip_dependencies": [
-                "google-auth>=2.0.0",
-                "google-cloud-aiplatform>=1.0.0",
-                "google-cloud-storage>=2.19.0",
-                "google-genai>=0.5.0",
-                "requests>=2.32.3"
-            ]
-        }
-    },
-    "categories": [
-        {
-            "video/googleai": {
-                "color": "border-pink-500",
-                "title": "Google AI",
-                "description": "Nodes for Google AI services.",
-                "icon": "Video"
-            }
-        },
-        {
-            "image/googleai": {
-                "color": "border-purple-500",
-                "title": "Image/Google AI",
-                "description": "Nodes for Google AI services.",
-                "icon": "Image"
-            }
-        },
-        {
-            "audio/googleai": {
-                "color": "border-green-500",
-                "title": "Audio/Google AI",
-                "description": "Nodes for Google AI audio services.",
-                "icon": "Music"
-            }
-        },
-        {
-            "audio": {
-                "color": "border-sky-500",
-                "title": "Audio",
-                "description": "General audio processing and display nodes.",
-                "icon": "audio-lines"
-            }
-        },
-        {
-            "analysis": {
-                "color": "border-blue-500",
-                "title": "Analysis",
-                "description": "General analysis nodes.",
-                "icon": "Eye"
-            }
-        },
-        {
-            "analysis/googleai": {
-                "color": "border-blue-500",
-                "title": "Media Analysis/Google AI",
-                "description": "Nodes for analyzing media content using Google AI services.",
-                "icon": "Eye"
-            }
-        }
-    ],
-    "nodes": [
-        {
-            "class_name": "VertexAIImageGenerator",
-            "file_path": "imagen_image_generator.py",
-            "metadata": {
-                "category": "image/googleai",
-                "description": "Generates images using Google's Imagen models.",
-                "display_name": "Imagen Image Generator"
-            }
-        },
-        {
-            "class_name": "GeminiImageGenerator",
-            "file_path": "gemini_image_generator.py",
-            "metadata": {
-                "category": "image/googleai",
-                "description": "Generates images using Google's Gemini models.",
-                "display_name": "Gemini Image Generator"
-            }
-        },
-        {
-            "class_name": "VeoVideoGenerator",
-            "file_path": "veo_video_generator.py",
-            "metadata": {
-                "category": "video/googleai",
-                "description": "Generates videos from text prompts using Google's Veo model.",
-                "display_name": "Veo Text-To-Video"
-            }
-        },
-        {
-            "class_name": "VeoImageToVideoGenerator",
-            "file_path": "veo_image_to_video_generator.py",
-            "metadata": {
-                "category": "video/googleai",
-                "description": "Generates videos from an image input using Google's Veo model.",
-                "display_name": "Veo Image-To-Video"
-            }
-        },
-        {
-            "class_name": "VeoTextToVideoWithRef",
-            "file_path": "veo_text_to_video_with_ref.py",
-            "metadata": {
-                "category": "video/googleai",
-                "description": "Generates videos from text prompts with reference images using Google's Veo model. Only includes models that support reference images.",
-                "display_name": "Veo Text-To-Video (With Reference Images)"
-            }
-        },
-        {
-            "class_name": "VideoDisplayNode",
-            "file_path": "multi_video_display.py",
-            "metadata": {
-                "category": "video",
-                "description": "Displays video players for a list of video URLs.",
-                "display_name": "Display Video (Multi)",
-                "group": "general"
-            }
-        },
-        {
-            "class_name": "LyriaAudioGenerator",
-            "file_path": "lyria_audio_generator.py",
-            "metadata": {
-                "category": "audio/googleai",
-                "description": "Generates instrumental audio using Google's Lyria model.",
-                "display_name": "Lyria Audio Generator",
-                "icon": "Music"
-            }
-        },
-        {
-            "class_name": "AudioDisplayNode",
-            "file_path": "multi_audio_display.py",
-            "metadata": {
-                "category": "audio",
-                "description": "Displays audio players for a list of audio URLs.",
-                "display_name": "Display Audio (Multi)",
-                "group": "general",
-                "icon": "Music"
-            }
-        },
-        {
-            "class_name": "DescribeMedia",
-            "file_path": "describe_media.py",
-            "metadata": {
-                "category": "analysis/googleai",
-                "description": "Analyzes images, videos, or audio and answers questions about the media content using Google's Gemini model.",
-                "display_name": "Describe Media",
-                "icon": "Eye"
-            }
-        },
-        {
-            "class_name": "IdentifyTimecodes",
-            "file_path": "identify_timecodes.py",
-            "metadata": {
-                "category": "analysis/googleai",
-                "description": "Identifies specific timecode markers in media content based on user prompts, outputting structured JSON with precise timing data.",
-                "display_name": "Identify Timecodes",
-                "icon": "Clock"
-            }
-        }
-    ],
-    "workflows": [
-        "workflows/templates/google_veo_frog_with_teeth.py"
+    "dependencies": {
+      "pip_dependencies": [
+        "google-auth>=2.0.0",
+        "google-cloud-aiplatform>=1.0.0",
+        "google-cloud-storage>=2.19.0",
+        "google-genai>=0.5.0",
+        "requests>=2.32.3"
       ]
-    
+    }
+  },
+  "categories": [
+    {
+      "video/googleai": {
+        "color": "border-pink-500",
+        "title": "Google AI",
+        "description": "Nodes for Google AI services.",
+        "icon": "Video"
+      }
+    },
+    {
+      "image/googleai": {
+        "color": "border-purple-500",
+        "title": "Image/Google AI",
+        "description": "Nodes for Google AI services.",
+        "icon": "Image"
+      }
+    },
+    {
+      "audio/googleai": {
+        "color": "border-green-500",
+        "title": "Audio/Google AI",
+        "description": "Nodes for Google AI audio services.",
+        "icon": "Music"
+      }
+    },
+    {
+      "audio": {
+        "color": "border-sky-500",
+        "title": "Audio",
+        "description": "General audio processing and display nodes.",
+        "icon": "audio-lines"
+      }
+    },
+    {
+      "analysis": {
+        "color": "border-blue-500",
+        "title": "Analysis",
+        "description": "General analysis nodes.",
+        "icon": "Eye"
+      }
+    },
+    {
+      "analysis/googleai": {
+        "color": "border-blue-500",
+        "title": "Media Analysis/Google AI",
+        "description": "Nodes for analyzing media content using Google AI services.",
+        "icon": "Eye"
+      }
+    }
+  ],
+  "nodes": [
+    {
+      "class_name": "VertexAIImageGenerator",
+      "file_path": "imagen_image_generator.py",
+      "metadata": {
+        "category": "image/googleai",
+        "description": "Generates images using Google's Imagen models.",
+        "display_name": "Imagen Image Generator"
+      }
+    },
+    {
+      "class_name": "GeminiImageGenerator",
+      "file_path": "gemini_image_generator.py",
+      "metadata": {
+        "category": "image/googleai",
+        "description": "Generates images using Google's Gemini models.",
+        "display_name": "Gemini Image Generator"
+      }
+    },
+    {
+      "class_name": "VeoVideoGenerator",
+      "file_path": "veo_video_generator.py",
+      "metadata": {
+        "category": "video/googleai",
+        "description": "Generates videos from text prompts using Google's Veo model.",
+        "display_name": "Veo Text-To-Video"
+      }
+    },
+    {
+      "class_name": "VeoImageToVideoGenerator",
+      "file_path": "veo_image_to_video_generator.py",
+      "metadata": {
+        "category": "video/googleai",
+        "description": "Generates videos from an image input using Google's Veo model.",
+        "display_name": "Veo Image-To-Video"
+      }
+    },
+    {
+      "class_name": "VeoTextToVideoWithRef",
+      "file_path": "veo_text_to_video_with_ref.py",
+      "metadata": {
+        "category": "video/googleai",
+        "description": "Generates videos from text prompts with reference images using Google's Veo model. Only includes models that support reference images.",
+        "display_name": "Veo Text-To-Video (With Reference Images)"
+      }
+    },
+    {
+      "class_name": "VideoDisplayNode",
+      "file_path": "multi_video_display.py",
+      "metadata": {
+        "category": "video",
+        "description": "Displays video players for a list of video URLs.",
+        "display_name": "Display Video (Multi)",
+        "group": "general"
+      }
+    },
+    {
+      "class_name": "LyriaAudioGenerator",
+      "file_path": "lyria_audio_generator.py",
+      "metadata": {
+        "category": "audio/googleai",
+        "description": "Generates instrumental audio using Google's Lyria model.",
+        "display_name": "Lyria Audio Generator",
+        "icon": "Music"
+      }
+    },
+    {
+      "class_name": "AudioDisplayNode",
+      "file_path": "multi_audio_display.py",
+      "metadata": {
+        "category": "audio",
+        "description": "Displays audio players for a list of audio URLs.",
+        "display_name": "Display Audio (Multi)",
+        "group": "general",
+        "icon": "Music"
+      }
+    },
+    {
+      "class_name": "DescribeMedia",
+      "file_path": "describe_media.py",
+      "metadata": {
+        "category": "analysis/googleai",
+        "description": "Analyzes images, videos, or audio and answers questions about the media content using Google's Gemini model.",
+        "display_name": "Describe Media",
+        "icon": "Eye"
+      }
+    },
+    {
+      "class_name": "IdentifyTimecodes",
+      "file_path": "identify_timecodes.py",
+      "metadata": {
+        "category": "analysis/googleai",
+        "description": "Identifies specific timecode markers in media content based on user prompts, outputting structured JSON with precise timing data.",
+        "display_name": "Identify Timecodes",
+        "icon": "Clock"
+      }
+    }
+  ],
+  "workflows": ["workflows/templates/google_veo_frog_with_teeth.py"]
 }
