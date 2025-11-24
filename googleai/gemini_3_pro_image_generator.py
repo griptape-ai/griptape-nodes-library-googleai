@@ -50,9 +50,7 @@ class NanoBananaProImageGenerator(ControlNode):
     """Nano Banana Pro image generation node (Gemini 3 Pro).
 
     Supports both Vertex AI and Google AI Studio API:
-    - Vertex AI: Uses gemini-3-pro-preview model
-    - AI Studio API: Uses gemini-3-pro-image-preview model
-
+    - Model: gemini-3-pro-image-preview (same model name for both APIs)
     - Supports up to 6 object images (high-fidelity objects to include)
     - Supports up to 5 human images (for character consistency)
     - Uses genai.Client() SDK with response_modalities=['TEXT', 'IMAGE']
@@ -80,7 +78,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 type="str",
                 tooltip="Choose API provider: Vertex AI (requires service account) or AI Studio API (requires API key).",
                 default_value="AI Studio API",
-                traits=[Options(choices=["Vertex AI", "AI Studio API"])],
+                traits=[Options(choices=["AI Studio API", "Vertex AI"])],
                 allowed_modes={ParameterMode.PROPERTY},
             )
         )
@@ -439,7 +437,7 @@ class NanoBananaProImageGenerator(ControlNode):
 
         if not GOOGLE_INSTALLED:
             self._log(
-                "ERROR: Required Google libraries are not installed. Please add 'google-auth', 'google-cloud-aiplatform', 'google-genai' to your library's dependencies."
+                "ERROR: Required Google libraries are not installed. Please add 'google-genai' to your library's dependencies."
             )
             return
 
@@ -457,14 +455,11 @@ class NanoBananaProImageGenerator(ControlNode):
         object_images = self.get_parameter_value("object_images")
         human_images = self.get_parameter_value("human_images")
 
-        # Normalize model name based on API provider (set programmatically, not exposed in UI)
-        if api_provider == "Vertex AI":
-            model = "gemini-3-pro-preview"
-        else:  # AI Studio API
-            model = "gemini-3-pro-image-preview"
+        # Model name is the same for both APIs
+        model = "gemini-3-pro-image-preview"
         
         self._log(f"📡 Using API provider: {api_provider}")
-        self._log(f"🤖 Model: {model} (automatically selected based on API provider)")
+        self._log(f"🤖 Model: {model}")
 
         # Validate inputs
         if not prompt and not object_images and not human_images:
@@ -555,9 +550,10 @@ class NanoBananaProImageGenerator(ControlNode):
 
         except ValueError as e:
             self._log(f"❌ CONFIGURATION ERROR: {e}")
-            self._log("💡 Please set up Google Cloud credentials in the library settings:")
-            self._log("   - GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
-            self._log("   - OR GOOGLE_CLOUD_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON")
+            self._log("💡 Please set up credentials in the library settings:")
+            self._log("   For AI Studio API: GOOGLE_API_KEY (get from https://aistudio.google.com/apikey)")
+            self._log("   For Vertex AI: GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
+            self._log("   OR GOOGLE_CLOUD_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON")
         except Exception as e:
             self._log(f"❌ Error: {e}")
             import traceback
