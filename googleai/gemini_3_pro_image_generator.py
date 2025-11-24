@@ -177,6 +177,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 tooltip="Text response from the model",
                 output_type="str",
                 allowed_modes={ParameterMode.OUTPUT},
+                ui_options={"multiline": True, "placeholder_text": "Generated text response..."},
             )
         )
 
