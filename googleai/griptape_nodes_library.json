@@ -10,7 +10,8 @@
                 "secrets_to_register": [
                     "GOOGLE_SERVICE_ACCOUNT_FILE_PATH",
                     "GOOGLE_CLOUD_PROJECT_ID",
-                    "GOOGLE_APPLICATION_CREDENTIALS_JSON"
+                    "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+                    "GOOGLE_API_KEY"
                 ]
             }
         }
@@ -35,7 +36,7 @@
                 "google-auth>=2.0.0",
                 "google-cloud-aiplatform>=1.0.0",
                 "google-cloud-storage>=2.19.0",
-                "google-genai>=0.5.0",
+                "google-genai>=1.40.0",
                 "requests>=2.32.3"
             ]
         }
@@ -107,6 +108,15 @@
                 "category": "image/googleai",
                 "description": "Generates images using Google's Gemini models.",
                 "display_name": "Gemini Image Generator"
+            }
+        },
+        {
+            "class_name": "NanoBananaProImageGenerator",
+            "file_path": "gemini_3_pro_image_generator.py",
+            "metadata": {
+                "category": "image/googleai",
+                "description": "Generates images using Google's Gemini 3 Pro model (Nano Banana Pro) with support for up to 6 object images, 5 human images, and 4K resolution. Supports both Vertex AI and AI Studio API.",
+                "display_name": "Nano Banana Pro Image Generator"
             }
         },
         {
