@@ -100,8 +100,8 @@ class NanoBananaProImageGenerator(ControlNode):
                 name="location",
                 type="str",
                 tooltip="Google Cloud location for Vertex AI (only used with Vertex AI provider).",
-                default_value="us-central1",
-                traits=[Options(choices=["us-central1", "europe-west1", "asia-southeast1", "global"])],
+                default_value="global",
+                traits=[Options(choices=["global", "us-central1", "europe-west1", "asia-southeast1"])],
                 allowed_modes={ParameterMode.PROPERTY},
             )
         )
