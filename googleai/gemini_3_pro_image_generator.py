@@ -152,6 +152,16 @@ class NanoBananaProImageGenerator(ControlNode):
             )
         )
 
+        self.add_parameter(
+            Parameter(
+                name="use_google_search",
+                type="bool",
+                tooltip="Enable Google Search grounding to allow the model to search the web for up-to-date information.",
+                default_value=False,
+                allowed_modes={ParameterMode.PROPERTY, ParameterMode.INPUT},
+            )
+        )
+
         # ===== Outputs =====
         self.add_parameter(
             Parameter(
@@ -304,6 +314,7 @@ class NanoBananaProImageGenerator(ControlNode):
         human_images,
         aspect_ratio,
         image_size,
+        use_google_search,
     ):
         """Generate image using Gemini 3 Pro and process response."""
         # Process reference images
@@ -320,7 +331,17 @@ class NanoBananaProImageGenerator(ControlNode):
         config_kwargs = {
             "response_modalities": ["TEXT", "IMAGE"],
         }
-        
+
+        # Add Google Search tool if enabled
+        if use_google_search:
+            try:
+                google_search_tool = types.Tool(google_search={})
+                config_kwargs["tools"] = [google_search_tool]
+                self._log("🔍 Google Search grounding enabled.")
+            except (AttributeError, TypeError) as e:
+                self._log(f"⚠️ Could not enable Google Search: {e}")
+                self._log("💡 Google Search may require a specific API version or configuration")
+
         # Try to add image config if ImageConfig is available
         try:
             if IMAGE_CONFIG_AVAILABLE:
@@ -355,6 +376,7 @@ class NanoBananaProImageGenerator(ControlNode):
         self._log(f"  • Model: {model}")
         self._log(f"  • Aspect ratio: {aspect_ratio}")
         self._log(f"  • Image size: {image_size}")
+        self._log(f"  • Google Search: {'Enabled' if use_google_search else 'Disabled'}")
         self._log(f"  • Reference images: {len(pil_images)} total ({object_count} objects, {human_count} humans)")
 
         # Make API call - matching notebook pattern
@@ -452,6 +474,7 @@ class NanoBananaProImageGenerator(ControlNode):
         location = self.get_parameter_value("location")
         aspect_ratio = self.get_parameter_value("aspect_ratio")
         image_size = self.get_parameter_value("image_size")
+        use_google_search = self.get_parameter_value("use_google_search")
 
         object_images = self.get_parameter_value("object_images")
         human_images = self.get_parameter_value("human_images")
@@ -547,6 +570,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 human_images=human_images,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
+                use_google_search=use_google_search,
             )
 
         except ValueError as e:
