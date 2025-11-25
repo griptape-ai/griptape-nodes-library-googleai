@@ -158,7 +158,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 type="bool",
                 tooltip="Enable Google Search grounding to allow the model to search the web for up-to-date information.",
                 default_value=False,
-                allowed_modes={ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.PROPERTY, ParameterMode.INPUT},
             )
         )
 
