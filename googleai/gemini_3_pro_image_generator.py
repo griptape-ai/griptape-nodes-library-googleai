@@ -33,6 +33,8 @@ try:
     from google.genai import types
     from google.oauth2 import service_account
     
+    GOOGLE_GENAI_VERSION = getattr(genai, '__version__', 'unknown')
+    
     # Try to import ImageConfig explicitly (available in google-genai >= 1.40.0)
     try:
         from google.genai.types import ImageConfig
@@ -44,6 +46,7 @@ try:
 except ImportError:
     GOOGLE_INSTALLED = False
     IMAGE_CONFIG_AVAILABLE = False
+    GOOGLE_GENAI_VERSION = 'not installed'
 
 
 class NanoBananaProImageGenerator(ControlNode):
@@ -362,8 +365,9 @@ class NanoBananaProImageGenerator(ControlNode):
                     config_kwargs["image_config"] = image_config
                 else:
                     # ImageConfig not available - skip image config
-                    self._log("⚠️ ImageConfig not available - aspect_ratio and image_size will be ignored")
-                    self._log("💡 Ensure google-genai >= 1.40.0 is installed for image config support")
+                    self._log(f"⚠️ ImageConfig not available - aspect_ratio and image_size will be ignored")
+                    self._log(f"💡 Current google-genai version: {GOOGLE_GENAI_VERSION}")
+                    self._log(f"💡 Ensure google-genai >= 1.40.0 is installed for image config support")
         except (AttributeError, TypeError) as e:
             # ImageConfig doesn't exist or can't be created - skip it
             self._log(f"⚠️ Could not create ImageConfig: {e}")
@@ -509,6 +513,14 @@ class NanoBananaProImageGenerator(ControlNode):
         if not PIL_INSTALLED:
             self._log("ERROR: Pillow is required to process images. Install 'Pillow' to enable.")
             return
+        
+        # Log version information
+        self._log(f"📦 google-genai version: {GOOGLE_GENAI_VERSION}")
+        if IMAGE_CONFIG_AVAILABLE:
+            self._log("✅ ImageConfig is available (aspect_ratio and image_size will be respected)")
+        else:
+            self._log(f"⚠️ ImageConfig is NOT available (requires google-genai >= 1.40.0)")
+            self._log(f"   → aspect_ratio and image_size parameters will be ignored")
 
         # Get input values
         api_provider = self.get_parameter_value("api_provider")
