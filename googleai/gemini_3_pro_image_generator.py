@@ -403,28 +403,70 @@ class NanoBananaProImageGenerator(ControlNode):
         all_images = []
         text_parts = []
 
-        if not hasattr(response, 'parts') or not response.parts:
+        # Get parts from the correct location in the response structure
+        parts_to_process = None
+        
+        # Try direct parts attribute (older API structure)
+        if hasattr(response, 'parts') and response.parts:
+            parts_to_process = response.parts
+            self._log("📋 Found parts directly on response")
+        # Try candidates structure (newer API structure)
+        elif hasattr(response, 'candidates') and response.candidates:
+            if len(response.candidates) > 0:
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'content') and candidate.content:
+                    if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                        parts_to_process = candidate.content.parts
+                        self._log("📋 Found parts in response.candidates[0].content.parts")
+
+        if not parts_to_process:
             self._log("⚠️ Response has no parts to process.")
             return
 
-        self._log(f"📋 Processing {len(response.parts)} response part(s)...")
+        self._log(f"📋 Processing {len(parts_to_process)} response part(s)...")
         
-        for idx, part in enumerate(response.parts):
+        for idx, part in enumerate(parts_to_process):
             try:
-                if part.text is not None:
-                    text_parts.append(part.text)
-                    self._log(f"📝 Part {idx + 1}: Text ({len(part.text)} chars)")
-                elif image := part.as_image():
-                    # Extract image bytes
-                    image_bytes = image.image_bytes
-                    mime_type = getattr(image, "mime_type", "image/png")
-                    self._log(f"🖼️ Part {idx + 1}: Image ({len(image_bytes)} bytes, {mime_type})")
-
+                # Check if this is a "thought" part (internal reasoning, not final output)
+                is_thought = getattr(part, 'thought', False)
+                thought_label = " (thought)" if is_thought else ""
+                
+                # Handle text parts
+                if hasattr(part, 'text') and part.text is not None:
+                    # Skip thought parts or include them based on preference
+                    if not is_thought:
+                        text_parts.append(part.text)
+                        self._log(f"📝 Part {idx + 1}: Text ({len(part.text)} chars){thought_label}")
+                    else:
+                        self._log(f"💭 Part {idx + 1}: Thought text ({len(part.text)} chars) - skipping")
+                
+                # Handle inline_data (Blob) - new structure
+                elif hasattr(part, 'inline_data') and part.inline_data:
+                    blob = part.inline_data
+                    image_bytes = blob.data
+                    mime_type = getattr(blob, 'mime_type', 'image/png')
+                    self._log(f"🖼️ Part {idx + 1}: Image via inline_data ({len(image_bytes)} bytes, {mime_type}){thought_label}")
+                    
                     # Create artifact
                     art = self._create_image_artifact(image_bytes, mime_type)
                     all_images.append(art)
+                
+                # Handle as_image() method - older structure
+                elif hasattr(part, 'as_image'):
+                    try:
+                        image = part.as_image()
+                        if image:
+                            image_bytes = image.image_bytes
+                            mime_type = getattr(image, "mime_type", "image/png")
+                            self._log(f"🖼️ Part {idx + 1}: Image via as_image() ({len(image_bytes)} bytes, {mime_type}){thought_label}")
+
+                            # Create artifact
+                            art = self._create_image_artifact(image_bytes, mime_type)
+                            all_images.append(art)
+                    except Exception:
+                        pass
                 else:
-                    self._log(f"ℹ️ Part {idx + 1}: Unknown type (skipping)")
+                    self._log(f"ℹ️ Part {idx + 1}: Unknown type (skipping){thought_label}")
             except Exception as e:
                 self._log(f"⚠️ Error processing part {idx + 1}: {e}")
                 import traceback
