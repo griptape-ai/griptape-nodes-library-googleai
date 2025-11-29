@@ -4,8 +4,8 @@
 # [tool.griptape-nodes]
 # name = "google_veo_frog_with_teeth"
 # schema_version = "0.13.0"
-# engine_version_created_with = "0.63.0"
-# node_libraries_referenced = [["Griptape Nodes Library", "0.50.0"], ["Google AI Library", "0.1.0"]]
+# engine_version_created_with = "0.64.1"
+# node_libraries_referenced = [["Griptape Nodes Library", "0.51.1"], ["Google AI Library", "0.1.0"]]
 # node_types_used = [["Google AI Library", "GeminiImageGenerator"], ["Google AI Library", "VeoTextToVideoWithRef"], ["Griptape Nodes Library", "Note"]]
 # is_griptape_provided = true
 # is_template = true
