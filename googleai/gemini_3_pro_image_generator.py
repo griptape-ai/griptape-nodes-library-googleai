@@ -51,9 +51,9 @@ except ImportError:
     GOOGLE_GENAI_VERSION = "not installed"
 
 
-
 VERTEX_AI = "Vertex AI"
 AI_STUDIO_API = "AI Studio API"
+
 
 class NanoBananaProImageGenerator(ControlNode):
     """Nano Banana Pro image generation node (Gemini 3 Pro).
@@ -169,24 +169,26 @@ class NanoBananaProImageGenerator(ControlNode):
         )
 
         self.add_parameter(
-            ParameterFloat(
-                name="temperature",
-                tooltip="Temperature for controlling generation randomness.",
-                default_value=0.7,
-                slider=True,
-                min_val=0.0,
-                max_val=2.0,
-                step=0.1,
-                allowed_modes={ParameterMode.PROPERTY},
-            )
-        )
-        self.add_parameter(
             Parameter(
                 name="use_google_search",
                 type="bool",
                 tooltip="Enable Google Search grounding to allow the model to search the web for up-to-date information.",
                 default_value=False,
                 allowed_modes={ParameterMode.PROPERTY, ParameterMode.INPUT},
+            )
+        )
+
+        # Temperature
+        self.add_parameter(
+            ParameterFloat(
+                name="temperature",
+                tooltip="Temperature for controlling generation randomness (0.0-2.0)",
+                default_value=0.7,
+                slider=True,
+                min_val=0.0,
+                max_val=2.0,
+                step=0.1,
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
 
@@ -392,10 +394,10 @@ class NanoBananaProImageGenerator(ControlNode):
         object_images,
         human_images,
         reference_images,
-        temperature,
         aspect_ratio,
         image_size,
         use_google_search,
+        temperature,
     ):
         """Generate image using Gemini 3 Pro and process response."""
         # Process reference images
@@ -460,9 +462,9 @@ class NanoBananaProImageGenerator(ControlNode):
 
         self._log("🎛️ Generation parameters:")
         self._log(f"  • Model: {model}")
-        self._log(f"  • Temperature: {temperature}")
         self._log(f"  • Aspect ratio: {aspect_ratio}")
         self._log(f"  • Image size: {image_size}")
+        self._log(f"  • Temperature: {temperature}")
         self._log(f"  • Google Search: {'Enabled' if use_google_search else 'Disabled'}")
         self._log(
             f"  • Reference images: {len(pil_images)} total ({object_count} objects, {human_count} humans, {reference_count} generic)"
@@ -716,10 +718,10 @@ class NanoBananaProImageGenerator(ControlNode):
                 object_images=object_images,
                 human_images=human_images,
                 reference_images=reference_images,
-                temperature=temperature,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
                 use_google_search=use_google_search,
+                temperature=temperature,
             )
 
         except ValueError as e:
