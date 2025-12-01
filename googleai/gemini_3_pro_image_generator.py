@@ -49,6 +49,10 @@ except ImportError:
     GOOGLE_GENAI_VERSION = 'not installed'
 
 
+
+VERTEX_AI = "Vertex AI"
+AI_STUDIO_API = "AI Studio API"
+
 class NanoBananaProImageGenerator(ControlNode):
     """Nano Banana Pro image generation node (Gemini 3 Pro).
 
@@ -82,8 +86,8 @@ class NanoBananaProImageGenerator(ControlNode):
                 name="api_provider",
                 type="str",
                 tooltip="Choose API provider: Vertex AI (requires service account) or AI Studio API (requires API key).",
-                default_value="Vertex AI",
-                traits=[Options(choices=["AI Studio API", "Vertex AI"])],
+                default_value=VERTEX_AI,
+                traits=[Options(choices=[AI_STUDIO_API, VERTEX_AI])],
                 allowed_modes={ParameterMode.PROPERTY},
             )
         )
@@ -218,6 +222,14 @@ class NanoBananaProImageGenerator(ControlNode):
 
         # Ensure outputs are clean on (re)initialization
         self._reset_outputs()
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter.name == "api_provider":
+            if value == VERTEX_AI:
+                self.show_parameter_by_name("location")
+            else:
+                self.hide_parameter_by_name("location")
+        return super().after_value_set(parameter, value)
 
     # ---------- Utilities ----------
     def _log(self, message: str):
