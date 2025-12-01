@@ -82,7 +82,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 name="api_provider",
                 type="str",
                 tooltip="Choose API provider: Vertex AI (requires service account) or AI Studio API (requires API key).",
-                default_value="AI Studio API",
+                default_value="Vertex AI",
                 traits=[Options(choices=["AI Studio API", "Vertex AI"])],
                 allowed_modes={ParameterMode.PROPERTY},
             )
