@@ -28,6 +28,8 @@ try:
 except Exception:
     REQUESTS_INSTALLED = False
 
+from googleai.utils import shrink_image_to_limit
+
 try:
     from google import genai
     from google.cloud import aiplatform
@@ -60,9 +62,7 @@ class NanoBananaProImageGenerator(ControlNode):
 
     Supports both Vertex AI and Google AI Studio API:
     - Model: gemini-3-pro-image-preview (same model name for both APIs)
-    - Supports up to 6 object images (high-fidelity objects to include)
-    - Supports up to 5 human images (for character consistency)
-    - Supports up to 14 reference images (generic/style/scene references, total limit)
+    - Supports up to 14 input images (≤ 7 MB each; png/jpeg/webp/heic/heif)
     - Uses genai.Client() SDK with response_modalities=['TEXT', 'IMAGE']
     - Supports 1K, 2K, and 4K resolution
     - Returns generated images as ImageUrlArtifact
@@ -74,10 +74,10 @@ class NanoBananaProImageGenerator(ControlNode):
     CREDENTIALS_JSON = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
     API_KEY = "GOOGLE_API_KEY"  # For Google AI Studio API
 
-    # Model constraints
-    MAX_OBJECT_IMAGES = 6
-    MAX_HUMAN_IMAGES = 5
-    MAX_REFERENCE_IMAGES = 14  # Total limit, but we allow up to 14 generic references
+    # Model constraints (from model card)
+    MAX_PROMPT_IMAGES = 14
+    MAX_IMAGE_BYTES = 7 * 1024 * 1024  # 7 MB
+    ALLOWED_IMAGE_MIME = {"image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"}
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -117,29 +117,11 @@ class NanoBananaProImageGenerator(ControlNode):
             )
         )
 
-        # ===== Reference Images =====
+        # ===== Input Images =====
         self.add_parameter(
             ParameterList(
-                name="object_images",
-                tooltip=f"Up to {self.MAX_OBJECT_IMAGES} high-fidelity object images to include in the final image (png/jpeg/webp).",
-                input_types=["ImageArtifact", "ImageUrlArtifact"],
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            )
-        )
-
-        self.add_parameter(
-            ParameterList(
-                name="human_images",
-                tooltip=f"Up to {self.MAX_HUMAN_IMAGES} human images for character consistency (png/jpeg/webp).",
-                input_types=["ImageArtifact", "ImageUrlArtifact"],
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            )
-        )
-
-        self.add_parameter(
-            ParameterList(
-                name="reference_images",
-                tooltip=f"Up to {self.MAX_REFERENCE_IMAGES} generic reference images for style, scene, or context guidance (png/jpeg/webp). Useful for cartoon scenes, backgrounds, or stylistic references.",
+                name="input_images",
+                tooltip=f"Up to {self.MAX_PROMPT_IMAGES} input images for reference, style, or context guidance (png/jpeg/webp/heic/heif, ≤ 7 MB each).",
                 input_types=["ImageArtifact", "ImageUrlArtifact"],
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
@@ -288,102 +270,77 @@ class NanoBananaProImageGenerator(ControlNode):
         if not PIL_INSTALLED:
             raise RuntimeError("Pillow is required to process images. Install 'Pillow' to enable.")
 
+        # Get raw bytes and mime type from artifact
         if isinstance(art, ImageArtifact):
-            # ImageArtifact.value is raw bytes
+            image_bytes = art.value
             mime = getattr(art, "mime_type", None) or "image/png"
-            pil_img = PILImage.open(_io.BytesIO(art.value))
-            # Set filename hint if available (PIL Images can have filename attribute)
-            if suggested_name:
-                pil_img.filename = suggested_name
-            return pil_img
-        if isinstance(art, ImageUrlArtifact):
-            # Fetch from URL
+        elif isinstance(art, ImageUrlArtifact):
             if not REQUESTS_INSTALLED:
                 raise RuntimeError("`requests` is required to fetch ImageUrlArtifact URLs.")
             resp = requests.get(art.value, timeout=30)
             resp.raise_for_status()
-            pil_img = PILImage.open(_io.BytesIO(resp.content))
-            # Set filename hint if available
-            if suggested_name:
-                pil_img.filename = suggested_name
-            return pil_img
-        raise TypeError(f"Unsupported image artifact type: {type(art)}")
+            image_bytes = resp.content
+            mime = resp.headers.get("Content-Type", "").split(";")[0].strip().lower() or "image/png"
+        else:
+            raise TypeError(f"Unsupported image artifact type: {type(art)}")
 
-    def _process_reference_images(
-        self, object_images: list, human_images: list, reference_images: list
-    ) -> tuple[list[PILImage.Image], int, int, int]:
-        """Process and validate reference images, return PIL Images and counts.
+        # Validate MIME type
+        if mime not in self.ALLOWED_IMAGE_MIME:
+            img_name = suggested_name or getattr(art, "name", "image")
+            error_msg = f"❌ Image '{img_name}' has unsupported MIME type: {mime}. Supported: {', '.join(self.ALLOWED_IMAGE_MIME)}"
+            self._log(error_msg)
+            raise ValueError(error_msg)
+
+        # Check size and shrink if needed
+        if len(image_bytes) > self.MAX_IMAGE_BYTES:
+            img_name = suggested_name or getattr(art, "name", "image")
+            size_mb = len(image_bytes) / (1024 * 1024)
+            self._log(f"ℹ️ Image '{img_name}' is {size_mb:.1f} MB; attempting to downscale to ≤ 7 MB...")
+            image_bytes, mime = shrink_image_to_limit(image_bytes, mime, self.MAX_IMAGE_BYTES, log_func=self._log)
+            if len(image_bytes) <= self.MAX_IMAGE_BYTES:
+                new_mb = len(image_bytes) / (1024 * 1024)
+                self._log(f"✅ Downscaled '{img_name}' to {new_mb:.2f} MB ({mime}).")
+            else:
+                error_msg = f"❌ Image '{img_name}' remains too large after downscaling."
+                self._log(error_msg)
+                raise ValueError(error_msg)
+
+        # Convert to PIL Image
+        pil_img = PILImage.open(_io.BytesIO(image_bytes))
+        if suggested_name:
+            pil_img.filename = suggested_name
+        return pil_img
+
+    def _process_images(self, input_images: list) -> list[PILImage.Image]:
+        """Process and validate input images, return PIL Images.
+
+        Args:
+            input_images: List of ImageArtifact or ImageUrlArtifact
 
         Returns:
-            Tuple of (pil_images list, object_count, human_count, reference_count)
+            List of PIL Images (max 14)
         """
         pil_images = []
-        object_count = 0
-        human_count = 0
-        reference_count = 0
 
-        # Normalize to lists
-        object_images = object_images or []
-        human_images = human_images or []
-        reference_images = reference_images or []
+        # Normalize to list
+        images = input_images or []
+        if not isinstance(images, list):
+            images = [images]
 
-        if not isinstance(object_images, list):
-            object_images = [object_images]
-        if not isinstance(human_images, list):
-            human_images = [human_images]
-        if not isinstance(reference_images, list):
-            reference_images = [reference_images]
-
-        # Calculate remaining slots (total limit is 14)
-        total_used = len(object_images[: self.MAX_OBJECT_IMAGES]) + len(human_images[: self.MAX_HUMAN_IMAGES])
-        max_reference_slots = max(0, self.MAX_REFERENCE_IMAGES - total_used)
-
-        # Process object images (max 6)
-        for img_idx, img_art in enumerate(object_images[: self.MAX_OBJECT_IMAGES]):
+        # Process images (max 14)
+        for img_idx, img_art in enumerate(images[: self.MAX_PROMPT_IMAGES]):
             try:
-                suggested_name = f"object{img_idx + 1}"
+                suggested_name = f"image{img_idx + 1}"
                 pil_img = self._image_artifact_to_pil_image(img_art, suggested_name=suggested_name)
                 pil_images.append(pil_img)
-                object_count += 1
             except Exception as e:
-                img_name = getattr(img_art, "name", f"object_image_{img_idx + 1}")
-                self._log(f"⚠️ Skipping object image '{img_name}' due to error: {e}")
+                img_name = getattr(img_art, "name", f"image_{img_idx + 1}")
+                self._log(f"⚠️ Skipping image '{img_name}' due to error: {e}")
 
-        if len(object_images) > self.MAX_OBJECT_IMAGES:
-            self._log(f"ℹ️ Only the first {self.MAX_OBJECT_IMAGES} object images are used.")
+        if len(images) > self.MAX_PROMPT_IMAGES:
+            self._log(f"ℹ️ Only the first {self.MAX_PROMPT_IMAGES} images are used.")
 
-        # Process human images (max 5)
-        for img_idx, img_art in enumerate(human_images[: self.MAX_HUMAN_IMAGES]):
-            try:
-                suggested_name = f"person{img_idx + 1}"
-                pil_img = self._image_artifact_to_pil_image(img_art, suggested_name=suggested_name)
-                pil_images.append(pil_img)
-                human_count += 1
-            except Exception as e:
-                img_name = getattr(img_art, "name", f"human_image_{img_idx + 1}")
-                self._log(f"⚠️ Skipping human image '{img_name}' due to error: {e}")
-
-        if len(human_images) > self.MAX_HUMAN_IMAGES:
-            self._log(f"ℹ️ Only the first {self.MAX_HUMAN_IMAGES} human images are used.")
-
-        # Process reference images (generic/style/scene references)
-        # Limit based on remaining slots after objects and humans
-        for img_idx, img_art in enumerate(reference_images[:max_reference_slots]):
-            try:
-                suggested_name = f"ref{img_idx + 1}"
-                pil_img = self._image_artifact_to_pil_image(img_art, suggested_name=suggested_name)
-                pil_images.append(pil_img)
-                reference_count += 1
-            except Exception as e:
-                img_name = getattr(img_art, "name", f"reference_image_{img_idx + 1}")
-                self._log(f"⚠️ Skipping reference image '{img_name}' due to error: {e}")
-
-        if len(reference_images) > max_reference_slots:
-            self._log(
-                f"ℹ️ Only the first {max_reference_slots} reference images are used (total limit: {self.MAX_REFERENCE_IMAGES} images)."
-            )
-
-        return pil_images, object_count, human_count, reference_count
+        return pil_images
 
     # ---------- Core generation ----------
     def _generate_and_process(
@@ -391,23 +348,17 @@ class NanoBananaProImageGenerator(ControlNode):
         client,
         model,
         prompt,
-        object_images,
-        human_images,
-        reference_images,
+        input_images,
         aspect_ratio,
         image_size,
         use_google_search,
         temperature,
     ):
         """Generate image using Gemini 3 Pro and process response."""
-        # Process reference images
-        pil_images, object_count, human_count, reference_count = self._process_reference_images(
-            object_images, human_images, reference_images
-        )
+        # Process input images
+        pil_images = self._process_images(input_images)
 
-        self._log(
-            f"📸 Processing {object_count} object image(s), {human_count} human image(s), and {reference_count} reference image(s)..."
-        )
+        self._log(f"📸 Processing {len(pil_images)} input image(s)...")
 
         # Build contents list: prompt + images
         contents = [prompt] if prompt else []
@@ -466,9 +417,7 @@ class NanoBananaProImageGenerator(ControlNode):
         self._log(f"  • Image size: {image_size}")
         self._log(f"  • Temperature: {temperature}")
         self._log(f"  • Google Search: {'Enabled' if use_google_search else 'Disabled'}")
-        self._log(
-            f"  • Reference images: {len(pil_images)} total ({object_count} objects, {human_count} humans, {reference_count} generic)"
-        )
+        self._log(f"  • Input images: {len(pil_images)}")
 
         # Make API call - matching notebook pattern
         self._log("🧠 Calling Gemini 3 Pro generate_content API...")
@@ -624,9 +573,7 @@ class NanoBananaProImageGenerator(ControlNode):
         use_google_search = self.get_parameter_value("use_google_search")
         temperature = self.get_parameter_value("temperature")
 
-        object_images = self.get_parameter_value("object_images")
-        human_images = self.get_parameter_value("human_images")
-        reference_images = self.get_parameter_value("reference_images")
+        input_images = self.get_parameter_value("input_images")
 
         # Model name is the same for both APIs
         model = "gemini-3-pro-image-preview"
@@ -635,8 +582,8 @@ class NanoBananaProImageGenerator(ControlNode):
         self._log(f"🤖 Model: {model}")
 
         # Validate inputs
-        if not prompt and not object_images and not human_images and not reference_images:
-            self._log("❌ Provide at least a prompt, object images, human images, or reference images.")
+        if not prompt and not input_images:
+            self._log("❌ Provide at least a prompt or input images.")
             return
 
         try:
@@ -715,9 +662,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 client=client,
                 model=model,
                 prompt=prompt,
-                object_images=object_images,
-                human_images=human_images,
-                reference_images=reference_images,
+                input_images=input_images,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
                 use_google_search=use_google_search,
