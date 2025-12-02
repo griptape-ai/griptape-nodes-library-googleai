@@ -1,5 +1,6 @@
 import base64
 import json
+import logging
 import os
 import time
 from typing import Any
@@ -32,6 +33,8 @@ except Exception:
     REQUESTS_INSTALLED = False
 
 from googleai.utils import shrink_image_to_limit
+
+logger = logging.getLogger("griptape_nodes_library_googleai")
 
 MODELS = []
 
@@ -193,7 +196,7 @@ class GeminiImageGenerator(ControlNode):
 
     # ---------- Utilities ----------
     def _log(self, message: str):
-        print(message)
+        logger.info(message)
         self.append_value_to_parameter("logs", message + "\n")
 
     def _reset_outputs(self) -> None:
