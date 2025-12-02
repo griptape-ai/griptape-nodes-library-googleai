@@ -32,7 +32,7 @@ try:
 except Exception:
     REQUESTS_INSTALLED = False
 
-from googleai.utils import validate_and_maybe_shrink_image
+from googleai_utils import validate_and_maybe_shrink_image
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -40,7 +40,7 @@ MODELS = []
 
 
 class GeminiImageGenerator(ControlNode):
-    """Gemini-only image generation node for Vertex AI (Gemini 2.5 Flash Image Preview).
+    """Gemini-only image generation node for Vertex AI (Gemini 2.5 Flash Image).
 
     - Location is 'global'.
     - Supports text prompt + up to 3 input images (≤ 7 MB each; png/jpeg/webp)

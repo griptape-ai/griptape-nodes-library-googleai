@@ -29,7 +29,7 @@ try:
 except Exception:
     REQUESTS_INSTALLED = False
 
-from googleai.utils import validate_and_maybe_shrink_image
+from googleai_utils import validate_and_maybe_shrink_image
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
