@@ -88,17 +88,6 @@ class NanoBananaProImageGenerator(ControlNode):
         # ===== Core configuration =====
         self.add_parameter(
             Parameter(
-                name="api_provider",
-                type="str",
-                tooltip="Choose API provider: Vertex AI (requires service account) or AI Studio API (requires API key).",
-                default_value=VERTEX_AI,
-                traits=[Options(choices=[AI_STUDIO_API, VERTEX_AI])],
-                allowed_modes={ParameterMode.PROPERTY},
-            )
-        )
-
-        self.add_parameter(
-            Parameter(
                 name="prompt",
                 input_types=["str"],
                 type="str",
@@ -106,6 +95,17 @@ class NanoBananaProImageGenerator(ControlNode):
                 tooltip="User prompt for image generation.",
                 ui_options={"multiline": True, "placeholder_text": "Enter prompt..."},
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY, ParameterMode.OUTPUT},
+            )
+        )
+
+        self.add_parameter(
+            Parameter(
+                name="api_provider",
+                type="str",
+                tooltip="Choose API provider: Vertex AI (requires service account) or AI Studio API (requires API key).",
+                default_value=VERTEX_AI,
+                traits=[Options(choices=[AI_STUDIO_API, VERTEX_AI])],
+                allowed_modes={ParameterMode.PROPERTY},
             )
         )
 
@@ -199,11 +199,24 @@ class NanoBananaProImageGenerator(ControlNode):
             ParameterFloat(
                 name="temperature",
                 tooltip="Temperature for controlling generation randomness (0.0-2.0)",
-                default_value=0.7,
+                default_value=1.0,
                 slider=True,
                 min_val=0.0,
                 max_val=2.0,
                 step=0.1,
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            )
+        )
+
+        self.add_parameter(
+            ParameterFloat(
+                name="top_p",
+                tooltip="Top-p nucleus sampling (0.0–1.0).",
+                default_value=0.95,
+                slider=True,
+                min_val=0.0,
+                max_val=1.0,
+                step=0.05,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
@@ -384,6 +397,7 @@ class NanoBananaProImageGenerator(ControlNode):
         image_size,
         use_google_search,
         temperature,
+        top_p,
         strict_image_size,
     ):
         """Generate image using Gemini 3 Pro and process response."""
@@ -401,6 +415,7 @@ class NanoBananaProImageGenerator(ControlNode):
         config_kwargs = {
             "response_modalities": ["TEXT", "IMAGE"],
             "temperature": temperature,
+            "top_p": top_p,
         }
 
         # Add Google Search tool if enabled
@@ -448,6 +463,7 @@ class NanoBananaProImageGenerator(ControlNode):
         self._log(f"  • Aspect ratio: {aspect_ratio}")
         self._log(f"  • Image size: {image_size}")
         self._log(f"  • Temperature: {temperature}")
+        self._log(f"  • Top-p: {top_p}")
         self._log(f"  • Google Search: {'Enabled' if use_google_search else 'Disabled'}")
         self._log(f"  • Input images: {len(pil_images)}")
 
@@ -604,6 +620,7 @@ class NanoBananaProImageGenerator(ControlNode):
         image_size = self.get_parameter_value("image_size")
         use_google_search = self.get_parameter_value("use_google_search")
         temperature = self.get_parameter_value("temperature")
+        top_p = self.get_parameter_value("top_p")
 
         reference_images = self.get_parameter_value("reference_images") or []
         strict_image_size = self.get_parameter_value("strict_image_size")
@@ -715,6 +732,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 image_size=image_size,
                 use_google_search=use_google_search,
                 temperature=temperature,
+                top_p=top_p,
                 strict_image_size=strict_image_size,
             )
 

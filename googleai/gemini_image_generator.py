@@ -14,6 +14,7 @@ from griptape.artifacts import (
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
@@ -69,6 +70,18 @@ class GeminiImageGenerator(ControlNode):
         # ===== Core configuration =====
         self.add_parameter(
             Parameter(
+                name="prompt",
+                input_types=["str"],
+                type="str",
+                output_type="str",
+                tooltip="User prompt for generation.",
+                ui_options={"multiline": True, "placeholder_text": "Enter prompt..."},
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY, ParameterMode.OUTPUT},
+            )
+        )
+
+        self.add_parameter(
+            Parameter(
                 name="location",
                 type="str",
                 tooltip="Google Cloud location for Gemini image generation.",
@@ -78,15 +91,32 @@ class GeminiImageGenerator(ControlNode):
             )
         )
 
+        # ===== Inputs: images & documents =====
+        self.add_parameter(
+            ParameterList(
+                name="input_images",
+                tooltip="Up to 3 input images (png/jpeg/webp, ≤ 7 MB each). These visual references are used by the model to guide image generation, similar to image-to-image generation.",
+                input_types=["ImageArtifact", "ImageUrlArtifact"],
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            )
+        )
+
         self.add_parameter(
             Parameter(
-                name="prompt",
-                input_types=["str"],
-                type="str",
-                output_type="str",
-                tooltip="User prompt for generation.",
-                ui_options={"multiline": True, "placeholder_text": "Enter prompt..."},
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY, ParameterMode.OUTPUT},
+                name="strict_image_size",
+                type="bool",
+                tooltip="If enabled, fail when input images exceed 7 MB instead of auto-shrinking them.",
+                default_value=False,
+                allowed_modes={ParameterMode.PROPERTY},
+            )
+        )
+
+        self.add_parameter(
+            ParameterList(
+                name="input_files",
+                tooltip="Up to 3 input files (pdf/txt, ≤ 50 MB each). Text content from these documents is extracted and included as additional context in the prompt to guide image generation.",
+                input_types=["BlobArtifact", "TextArtifact"],
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
 
@@ -104,21 +134,27 @@ class GeminiImageGenerator(ControlNode):
 
         # Sampling / candidates
         self.add_parameter(
-            Parameter(
+            ParameterFloat(
                 name="temperature",
-                type="float",
-                tooltip="Sampling temperature for image generation (0.0–1.0). Higher values increase randomness.",
+                tooltip="Sampling temperature for image generation (0.0–2.0). Higher values increase randomness.",
                 default_value=1.0,
-                allowed_modes={ParameterMode.PROPERTY},
+                slider=True,
+                min_val=0.0,
+                max_val=2.0,
+                step=0.1,
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
         self.add_parameter(
-            Parameter(
+            ParameterFloat(
                 name="top_p",
-                type="float",
                 tooltip="Top-p nucleus sampling (0.0–1.0).",
                 default_value=0.95,
-                allowed_modes={ParameterMode.PROPERTY},
+                slider=True,
+                min_val=0.0,
+                max_val=1.0,
+                step=0.05,
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
         self.add_parameter(
@@ -129,34 +165,6 @@ class GeminiImageGenerator(ControlNode):
                 default_value=1,
                 allowed_modes={ParameterMode.PROPERTY},
                 ui_options={"hide": True},
-            )
-        )
-
-        # ===== Inputs: images & documents =====
-        self.add_parameter(
-            ParameterList(
-                name="input_images",
-                tooltip="Up to 3 input images (png/jpeg/webp, ≤ 7 MB each). These visual references are used by the model to guide image generation, similar to image-to-image generation.",
-                input_types=["ImageArtifact", "ImageUrlArtifact"],
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            )
-        )
-        self.add_parameter(
-            ParameterList(
-                name="input_files",
-                tooltip="Up to 3 input files (pdf/txt, ≤ 50 MB each). Text content from these documents is extracted and included as additional context in the prompt to guide image generation.",
-                input_types=["BlobArtifact", "TextArtifact"],
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            )
-        )
-
-        self.add_parameter(
-            Parameter(
-                name="strict_image_size",
-                type="bool",
-                tooltip="If enabled, fail when input images exceed 7 MB instead of auto-shrinking them.",
-                default_value=False,
-                allowed_modes={ParameterMode.PROPERTY},
             )
         )
 
@@ -349,29 +357,13 @@ class GeminiImageGenerator(ControlNode):
         if original_candidates != eff_candidates:
             self._log(f"⚠️ Candidate count adjusted from {original_candidates} to {eff_candidates} (valid range: 1-8)")
 
-        # Validate parameters for image generation model
-        eff_temperature = float(temperature or 1.0)
-        if not (0.0 <= eff_temperature <= 1.0):
-            error_msg = (
-                f"❌ Temperature must be between 0.0 and 1.0 for image generation models. "
-                f"Got: {eff_temperature}. The gemini-2.5-flash-image model has "
-                f"more restrictive temperature constraints than text generation models."
-            )
-            self._log(error_msg)
-            raise ValueError(error_msg)
-
-        eff_top_p = float(top_p or 0.95)
-        if not (0.0 <= eff_top_p <= 1.0):
-            error_msg = f"❌ Top-p must be between 0.0 and 1.0. Got: {eff_top_p}"
-            self._log(error_msg)
-            raise ValueError(error_msg)
 
         # Build REST API payload
         payload = {
             "contents": [{"role": "USER", "parts": parts}],
             "generation_config": {
-                "temperature": eff_temperature,
-                "topP": eff_top_p,
+                "temperature": float(temperature),
+                "topP": float(top_p),
                 "candidateCount": eff_candidates,
                 "response_modalities": ["TEXT", "IMAGE"],
                 "image_config": {"aspect_ratio": aspect_ratio},
@@ -379,8 +371,8 @@ class GeminiImageGenerator(ControlNode):
         }
 
         self._log("🎛️ Generation parameters:")
-        self._log(f"  • Temperature: {eff_temperature}")
-        self._log(f"  • Top-p: {eff_top_p}")
+        self._log(f"  • Temperature: {temperature}")
+        self._log(f"  • Top-p: {top_p}")
         self._log(f"  • Candidate count: {eff_candidates}")
         self._log(f"  • Aspect ratio: {aspect_ratio}")
 
