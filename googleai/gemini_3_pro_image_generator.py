@@ -8,6 +8,7 @@ from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
@@ -32,12 +33,13 @@ try:
     from google.cloud import aiplatform
     from google.genai import types
     from google.oauth2 import service_account
-    
-    GOOGLE_GENAI_VERSION = getattr(genai, '__version__', 'unknown')
-    
+
+    GOOGLE_GENAI_VERSION = getattr(genai, "__version__", "unknown")
+
     # Try to import ImageConfig explicitly (available in google-genai >= 1.40.0)
     try:
         from google.genai.types import ImageConfig
+
         IMAGE_CONFIG_AVAILABLE = True
     except (ImportError, AttributeError):
         IMAGE_CONFIG_AVAILABLE = False
@@ -46,12 +48,12 @@ try:
 except ImportError:
     GOOGLE_INSTALLED = False
     IMAGE_CONFIG_AVAILABLE = False
-    GOOGLE_GENAI_VERSION = 'not installed'
-
+    GOOGLE_GENAI_VERSION = "not installed"
 
 
 VERTEX_AI = "Vertex AI"
 AI_STUDIO_API = "AI Studio API"
+
 
 class NanoBananaProImageGenerator(ControlNode):
     """Nano Banana Pro image generation node (Gemini 3 Pro).
@@ -150,11 +152,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 type="str",
                 tooltip="Aspect ratio for generated images.",
                 default_value="16:9",
-                traits=[
-                    Options(
-                        choices=["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"]
-                    )
-                ],
+                traits=[Options(choices=["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"])],
                 allowed_modes={ParameterMode.PROPERTY},
             )
         )
@@ -177,6 +175,20 @@ class NanoBananaProImageGenerator(ControlNode):
                 tooltip="Enable Google Search grounding to allow the model to search the web for up-to-date information.",
                 default_value=False,
                 allowed_modes={ParameterMode.PROPERTY, ParameterMode.INPUT},
+            )
+        )
+
+        # Temperature
+        self.add_parameter(
+            ParameterFloat(
+                name="temperature",
+                tooltip="Temperature for controlling generation randomness (0.0-2.0)",
+                default_value=0.7,
+                slider=True,
+                min_val=0.0,
+                max_val=2.0,
+                step=0.1,
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
 
@@ -268,7 +280,7 @@ class NanoBananaProImageGenerator(ControlNode):
 
     def _image_artifact_to_pil_image(self, art: Any, suggested_name: str = None) -> PILImage.Image:
         """Convert ImageArtifact or ImageUrlArtifact to PIL Image.
-        
+
         Args:
             art: ImageArtifact or ImageUrlArtifact
             suggested_name: Optional name hint for the image (for logging/debugging)
@@ -284,7 +296,7 @@ class NanoBananaProImageGenerator(ControlNode):
             if suggested_name:
                 pil_img.filename = suggested_name
             return pil_img
-        elif isinstance(art, ImageUrlArtifact):
+        if isinstance(art, ImageUrlArtifact):
             # Fetch from URL
             if not REQUESTS_INSTALLED:
                 raise RuntimeError("`requests` is required to fetch ImageUrlArtifact URLs.")
@@ -295,14 +307,13 @@ class NanoBananaProImageGenerator(ControlNode):
             if suggested_name:
                 pil_img.filename = suggested_name
             return pil_img
-        else:
-            raise TypeError(f"Unsupported image artifact type: {type(art)}")
+        raise TypeError(f"Unsupported image artifact type: {type(art)}")
 
     def _process_reference_images(
         self, object_images: list, human_images: list, reference_images: list
     ) -> tuple[list[PILImage.Image], int, int, int]:
         """Process and validate reference images, return PIL Images and counts.
-        
+
         Returns:
             Tuple of (pil_images list, object_count, human_count, reference_count)
         """
@@ -315,7 +326,7 @@ class NanoBananaProImageGenerator(ControlNode):
         object_images = object_images or []
         human_images = human_images or []
         reference_images = reference_images or []
-        
+
         if not isinstance(object_images, list):
             object_images = [object_images]
         if not isinstance(human_images, list):
@@ -368,7 +379,9 @@ class NanoBananaProImageGenerator(ControlNode):
                 self._log(f"⚠️ Skipping reference image '{img_name}' due to error: {e}")
 
         if len(reference_images) > max_reference_slots:
-            self._log(f"ℹ️ Only the first {max_reference_slots} reference images are used (total limit: {self.MAX_REFERENCE_IMAGES} images).")
+            self._log(
+                f"ℹ️ Only the first {max_reference_slots} reference images are used (total limit: {self.MAX_REFERENCE_IMAGES} images)."
+            )
 
         return pil_images, object_count, human_count, reference_count
 
@@ -384,6 +397,7 @@ class NanoBananaProImageGenerator(ControlNode):
         aspect_ratio,
         image_size,
         use_google_search,
+        temperature,
     ):
         """Generate image using Gemini 3 Pro and process response."""
         # Process reference images
@@ -391,7 +405,9 @@ class NanoBananaProImageGenerator(ControlNode):
             object_images, human_images, reference_images
         )
 
-        self._log(f"📸 Processing {object_count} object image(s), {human_count} human image(s), and {reference_count} reference image(s)...")
+        self._log(
+            f"📸 Processing {object_count} object image(s), {human_count} human image(s), and {reference_count} reference image(s)..."
+        )
 
         # Build contents list: prompt + images
         contents = [prompt] if prompt else []
@@ -401,6 +417,7 @@ class NanoBananaProImageGenerator(ControlNode):
         # ImageConfig is available in google-genai >= 1.40.0
         config_kwargs = {
             "response_modalities": ["TEXT", "IMAGE"],
+            "temperature": temperature,
         }
 
         # Add Google Search tool if enabled
@@ -422,39 +439,41 @@ class NanoBananaProImageGenerator(ControlNode):
                     image_size=image_size,
                 )
                 config_kwargs["image_config"] = image_config
+            # Try accessing ImageConfig from types namespace directly
+            # (it might exist even if direct import failed)
+            elif hasattr(types, "ImageConfig"):
+                image_config = types.ImageConfig(
+                    aspect_ratio=aspect_ratio,
+                    image_size=image_size,
+                )
+                config_kwargs["image_config"] = image_config
             else:
-                # Try accessing ImageConfig from types namespace directly
-                # (it might exist even if direct import failed)
-                if hasattr(types, 'ImageConfig'):
-                    image_config = types.ImageConfig(
-                        aspect_ratio=aspect_ratio,
-                        image_size=image_size,
-                    )
-                    config_kwargs["image_config"] = image_config
-                else:
-                    # ImageConfig not available - skip image config
-                    self._log(f"⚠️ ImageConfig not available - aspect_ratio and image_size will be ignored")
-                    self._log(f"💡 Current google-genai version: {GOOGLE_GENAI_VERSION}")
-                    self._log(f"💡 Ensure google-genai >= 1.40.0 is installed for image config support")
+                # ImageConfig not available - skip image config
+                self._log("⚠️ ImageConfig not available - aspect_ratio and image_size will be ignored")
+                self._log(f"💡 Current google-genai version: {GOOGLE_GENAI_VERSION}")
+                self._log("💡 Ensure google-genai >= 1.40.0 is installed for image config support")
         except (AttributeError, TypeError) as e:
             # ImageConfig doesn't exist or can't be created - skip it
             self._log(f"⚠️ Could not create ImageConfig: {e}")
             self._log("💡 Image generation will proceed without aspect_ratio/image_size control")
             self._log("💡 Ensure google-genai >= 1.40.0 is installed for full image config support")
-        
+
         config = types.GenerateContentConfig(**config_kwargs)
 
         self._log("🎛️ Generation parameters:")
         self._log(f"  • Model: {model}")
         self._log(f"  • Aspect ratio: {aspect_ratio}")
         self._log(f"  • Image size: {image_size}")
+        self._log(f"  • Temperature: {temperature}")
         self._log(f"  • Google Search: {'Enabled' if use_google_search else 'Disabled'}")
-        self._log(f"  • Reference images: {len(pil_images)} total ({object_count} objects, {human_count} humans, {reference_count} generic)")
+        self._log(
+            f"  • Reference images: {len(pil_images)} total ({object_count} objects, {human_count} humans, {reference_count} generic)"
+        )
 
         # Make API call - matching notebook pattern
         self._log("🧠 Calling Gemini 3 Pro generate_content API...")
         self._log("⏳ This may take 30-60 seconds or longer, especially with multiple reference images...")
-        
+
         try:
             response = client.models.generate_content(
                 model=model,
@@ -466,6 +485,7 @@ class NanoBananaProImageGenerator(ControlNode):
             error_msg = str(e)
             self._log(f"❌ API call failed: {error_msg}")
             import traceback
+
             self._log(traceback.format_exc())
             raise
 
@@ -477,17 +497,17 @@ class NanoBananaProImageGenerator(ControlNode):
 
         # Get parts from the correct location in the response structure
         parts_to_process = None
-        
+
         # Try direct parts attribute (older API structure)
-        if hasattr(response, 'parts') and response.parts:
+        if hasattr(response, "parts") and response.parts:
             parts_to_process = response.parts
             self._log("📋 Found parts directly on response")
         # Try candidates structure (newer API structure)
-        elif hasattr(response, 'candidates') and response.candidates:
+        elif hasattr(response, "candidates") and response.candidates:
             if len(response.candidates) > 0:
                 candidate = response.candidates[0]
-                if hasattr(candidate, 'content') and candidate.content:
-                    if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                if hasattr(candidate, "content") and candidate.content:
+                    if hasattr(candidate.content, "parts") and candidate.content.parts:
                         parts_to_process = candidate.content.parts
                         self._log("📋 Found parts in response.candidates[0].content.parts")
 
@@ -496,41 +516,45 @@ class NanoBananaProImageGenerator(ControlNode):
             return
 
         self._log(f"📋 Processing {len(parts_to_process)} response part(s)...")
-        
+
         for idx, part in enumerate(parts_to_process):
             try:
                 # Check if this is a "thought" part (internal reasoning, not final output)
-                is_thought = getattr(part, 'thought', False)
+                is_thought = getattr(part, "thought", False)
                 thought_label = " (thought)" if is_thought else ""
-                
+
                 # Handle text parts
-                if hasattr(part, 'text') and part.text is not None:
+                if hasattr(part, "text") and part.text is not None:
                     # Skip thought parts or include them based on preference
                     if not is_thought:
                         text_parts.append(part.text)
                         self._log(f"📝 Part {idx + 1}: Text ({len(part.text)} chars){thought_label}")
                     else:
                         self._log(f"💭 Part {idx + 1}: Thought text ({len(part.text)} chars) - skipping")
-                
+
                 # Handle inline_data (Blob) - new structure
-                elif hasattr(part, 'inline_data') and part.inline_data:
+                elif hasattr(part, "inline_data") and part.inline_data:
                     blob = part.inline_data
                     image_bytes = blob.data
-                    mime_type = getattr(blob, 'mime_type', 'image/png')
-                    self._log(f"🖼️ Part {idx + 1}: Image via inline_data ({len(image_bytes)} bytes, {mime_type}){thought_label}")
-                    
+                    mime_type = getattr(blob, "mime_type", "image/png")
+                    self._log(
+                        f"🖼️ Part {idx + 1}: Image via inline_data ({len(image_bytes)} bytes, {mime_type}){thought_label}"
+                    )
+
                     # Create artifact
                     art = self._create_image_artifact(image_bytes, mime_type)
                     all_images.append(art)
-                
+
                 # Handle as_image() method - older structure
-                elif hasattr(part, 'as_image'):
+                elif hasattr(part, "as_image"):
                     try:
                         image = part.as_image()
                         if image:
                             image_bytes = image.image_bytes
                             mime_type = getattr(image, "mime_type", "image/png")
-                            self._log(f"🖼️ Part {idx + 1}: Image via as_image() ({len(image_bytes)} bytes, {mime_type}){thought_label}")
+                            self._log(
+                                f"🖼️ Part {idx + 1}: Image via as_image() ({len(image_bytes)} bytes, {mime_type}){thought_label}"
+                            )
 
                             # Create artifact
                             art = self._create_image_artifact(image_bytes, mime_type)
@@ -542,6 +566,7 @@ class NanoBananaProImageGenerator(ControlNode):
             except Exception as e:
                 self._log(f"⚠️ Error processing part {idx + 1}: {e}")
                 import traceback
+
                 self._log(traceback.format_exc())
 
         # Set outputs
@@ -549,7 +574,7 @@ class NanoBananaProImageGenerator(ControlNode):
             self.parameter_output_values["images"] = all_images
             if len(all_images) == 1:
                 self.parameter_output_values["image"] = all_images[0]
-                self._log(f"🖼️ Saved 1 image to both 'image' and 'images' outputs.")
+                self._log("🖼️ Saved 1 image to both 'image' and 'images' outputs.")
             else:
                 self.parameter_output_values["image"] = None
                 self._log(f"🖼️ Saved {len(all_images)} image(s) to 'images' output.")
@@ -581,14 +606,14 @@ class NanoBananaProImageGenerator(ControlNode):
         if not PIL_INSTALLED:
             self._log("ERROR: Pillow is required to process images. Install 'Pillow' to enable.")
             return
-        
+
         # Log version information
         self._log(f"📦 google-genai version: {GOOGLE_GENAI_VERSION}")
         if IMAGE_CONFIG_AVAILABLE:
             self._log("✅ ImageConfig is available (aspect_ratio and image_size will be respected)")
         else:
-            self._log(f"⚠️ ImageConfig is NOT available (requires google-genai >= 1.40.0)")
-            self._log(f"   → aspect_ratio and image_size parameters will be ignored")
+            self._log("⚠️ ImageConfig is NOT available (requires google-genai >= 1.40.0)")
+            self._log("   → aspect_ratio and image_size parameters will be ignored")
 
         # Get input values
         api_provider = self.get_parameter_value("api_provider")
@@ -597,6 +622,7 @@ class NanoBananaProImageGenerator(ControlNode):
         aspect_ratio = self.get_parameter_value("aspect_ratio")
         image_size = self.get_parameter_value("image_size")
         use_google_search = self.get_parameter_value("use_google_search")
+        temperature = self.get_parameter_value("temperature")
 
         object_images = self.get_parameter_value("object_images")
         human_images = self.get_parameter_value("human_images")
@@ -604,7 +630,7 @@ class NanoBananaProImageGenerator(ControlNode):
 
         # Model name is the same for both APIs
         model = "gemini-3-pro-image-preview"
-        
+
         self._log(f"📡 Using API provider: {api_provider}")
         self._log(f"🤖 Model: {model}")
 
@@ -663,7 +689,7 @@ class NanoBananaProImageGenerator(ControlNode):
                                 cred_dict, scopes=["https://www.googleapis.com/auth/cloud-platform"]
                             )
                             # For JSON credentials, write to temp file so genai.Client can use it
-                            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
                                 json.dump(cred_dict, f)
                                 temp_cred_file = f.name
                             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_cred_file
@@ -695,6 +721,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
                 use_google_search=use_google_search,
+                temperature=temperature,
             )
 
         except ValueError as e:
@@ -712,4 +739,3 @@ class NanoBananaProImageGenerator(ControlNode):
             self.parameter_output_values["image"] = None
             self.parameter_output_values["images"] = []
             self.parameter_output_values["text"] = ""
-
