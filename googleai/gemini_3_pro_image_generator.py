@@ -161,6 +161,16 @@ class NanoBananaProImageGenerator(ControlNode):
             )
         )
 
+        self.add_parameter(
+            Parameter(
+                name="use_google_search",
+                type="bool",
+                tooltip="Enable Google Search grounding to allow the model to search the web for up-to-date information.",
+                default_value=False,
+                allowed_modes={ParameterMode.PROPERTY, ParameterMode.INPUT},
+            )
+        )
+
         # ===== Image Configuration =====
         self.add_parameter(
             Parameter(
@@ -181,16 +191,6 @@ class NanoBananaProImageGenerator(ControlNode):
                 default_value="2K",
                 traits=[Options(choices=["1K", "2K", "4K"])],
                 allowed_modes={ParameterMode.PROPERTY},
-            )
-        )
-
-        self.add_parameter(
-            Parameter(
-                name="use_google_search",
-                type="bool",
-                tooltip="Enable Google Search grounding to allow the model to search the web for up-to-date information.",
-                default_value=False,
-                allowed_modes={ParameterMode.PROPERTY, ParameterMode.INPUT},
             )
         )
 
