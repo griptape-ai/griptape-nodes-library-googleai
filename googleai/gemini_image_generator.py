@@ -31,14 +31,7 @@ try:
 except Exception:
     REQUESTS_INSTALLED = False
 
-try:
-    import io as _io
-
-    from PIL import Image as PILImage
-
-    PIL_INSTALLED = True
-except Exception:
-    PIL_INSTALLED = False
+from googleai.utils import shrink_image_to_limit
 
 MODELS = []
 
@@ -63,8 +56,8 @@ class GeminiImageGenerator(ControlNode):
     MAX_PROMPT_IMAGES = 3
     MAX_PROMPT_DOCS = 3
     MAX_IMAGE_BYTES = 7 * 1024 * 1024  # 7 MB
-    MAX_DOC_BYTES = 50 * 1024 * 1024  # 50 MB
-    ALLOWED_IMAGE_MIME = {"image/png", "image/jpeg", "image/webp"}
+    MAX_DOC_BYTES = 7 * 1024 * 1024  # 7 MB (direct upload, not Cloud Storage)
+    ALLOWED_IMAGE_MIME = {"image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"}
     ALLOWED_DOC_MIME = {"application/pdf", "text/plain"}
 
     def __init__(self, **kwargs) -> None:
@@ -264,53 +257,6 @@ class GeminiImageGenerator(ControlNode):
             return data, mime
         raise TypeError("Unsupported file artifact type.")
 
-    def _shrink_image_to_limit(self, image_bytes: bytes, mime_type: str, byte_limit: int) -> tuple[bytes, str]:
-        """Best-effort shrink using Pillow to ensure <= byte_limit. Returns (bytes, mime)."""
-        if not PIL_INSTALLED:
-            self._log("ℹ️ Pillow not installed; cannot downscale large images. Install 'Pillow' to enable.")
-            return image_bytes, mime_type
-
-        try:
-            img = PILImage.open(_io.BytesIO(image_bytes))
-            img = img.convert("RGBA") if img.mode in ("P", "LA") else img
-            # Prefer WEBP for better compression and alpha support
-            target_format = "WEBP"
-            target_mime = "image/webp"
-
-            orig_w, orig_h = img.size
-            scales = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5]
-            qualities = [90, 85, 80, 75, 70, 60, 50]
-
-            for scale in scales:
-                w = max(1, int(orig_w * scale))
-                h = max(1, int(orig_h * scale))
-                resized = img.resize((w, h)) if (w, h) != (orig_w, orig_h) else img
-                for q in qualities:
-                    buf = _io.BytesIO()
-                    save_params = {"format": target_format, "quality": q}
-                    # lossless false by default; ensure efficient encoding
-                    if target_format == "WEBP":
-                        save_params.update({"method": 6})
-                    resized.save(buf, **save_params)
-                    data = buf.getvalue()
-                    if len(data) <= byte_limit:
-                        return data, target_mime
-            # As a last resort, try JPEG without alpha
-            rgb = img.convert("RGB")
-            for scale in scales:
-                w = max(1, int(orig_w * scale))
-                h = max(1, int(orig_h * scale))
-                resized = rgb.resize((w, h)) if (w, h) != (orig_w, orig_h) else rgb
-                for q in qualities:
-                    buf = _io.BytesIO()
-                    resized.save(buf, format="JPEG", quality=q, optimize=True, progressive=True)
-                    data = buf.getvalue()
-                    if len(data) <= byte_limit:
-                        return data, "image/jpeg"
-        except Exception as e:
-            self._log(f"⚠️ Downscale failed: {e}")
-        return image_bytes, mime_type
-
     def _get_access_token(self, credentials) -> str:
         """Get access token from credentials."""
         if not credentials.valid:
@@ -358,7 +304,7 @@ class GeminiImageGenerator(ControlNode):
                     img_name = getattr(img_art, "name", f"image_{img_idx + 1}")
                     size_mb = len(b) / (1024 * 1024)
                     self._log(f"ℹ️ Image '{img_name}' is {size_mb:.1f} MB; attempting to downscale to ≤ 7 MB...")
-                    b2, mime2 = self._shrink_image_to_limit(b, mime, self.MAX_IMAGE_BYTES)
+                    b2, mime2 = shrink_image_to_limit(b, mime, self.MAX_IMAGE_BYTES, log_func=self._log)
                     if len(b2) <= self.MAX_IMAGE_BYTES:
                         new_mb = len(b2) / (1024 * 1024)
                         self._log(f"✅ Downscaled '{img_name}' to {new_mb:.2f} MB ({mime2}).")
