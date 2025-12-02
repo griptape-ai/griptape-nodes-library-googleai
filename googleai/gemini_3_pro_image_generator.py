@@ -138,7 +138,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 tooltip="[Deprecated] Use reference_images instead.",
                 input_types=["ImageArtifact", "ImageUrlArtifact"],
                 allowed_modes={ParameterMode.INPUT},
-                ui_options={"hide": True},
+                hide=True,
             )
         )
         self.add_parameter(
@@ -147,7 +147,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 tooltip="[Deprecated] Use reference_images instead.",
                 input_types=["ImageArtifact", "ImageUrlArtifact"],
                 allowed_modes={ParameterMode.INPUT},
-                ui_options={"hide": True},
+                hide=True,
             )
         )
 
