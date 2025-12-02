@@ -77,7 +77,7 @@ class NanoBananaProImageGenerator(ControlNode):
     CREDENTIALS_JSON = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
     API_KEY = "GOOGLE_API_KEY"  # For Google AI Studio API
 
-    # Model constraints (from model card)
+    # Model constraints: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-pro-image
     MAX_PROMPT_IMAGES = 14
     MAX_IMAGE_BYTES = 7 * 1024 * 1024  # 7 MB
     ALLOWED_IMAGE_MIME = {"image/png", "image/jpeg", "image/webp", "image/heic", "image/heif"}

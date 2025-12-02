@@ -56,7 +56,7 @@ class GeminiImageGenerator(ControlNode):
     PROJECT_ID = "GOOGLE_CLOUD_PROJECT_ID"
     CREDENTIALS_JSON = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
 
-    # Model constraints (from model card)
+    # Model constraints: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-flash-image
     MAX_PROMPT_IMAGES = 3
     MAX_PROMPT_DOCS = 3
     MAX_IMAGE_BYTES = 7 * 1024 * 1024  # 7 MB
