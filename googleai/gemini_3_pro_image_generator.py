@@ -117,13 +117,34 @@ class NanoBananaProImageGenerator(ControlNode):
             )
         )
 
-        # ===== Input Images =====
+        # ===== Reference Images =====
         self.add_parameter(
             ParameterList(
-                name="input_images",
-                tooltip=f"Up to {self.MAX_PROMPT_IMAGES} input images for reference, style, or context guidance (png/jpeg/webp/heic/heif, ≤ 7 MB each).",
+                name="reference_images",
+                tooltip=f"Up to {self.MAX_PROMPT_IMAGES} reference images for style, context, or guidance (png/jpeg/webp/heic/heif, ≤ 7 MB each).",
                 input_types=["ImageArtifact", "ImageUrlArtifact"],
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+            )
+        )
+
+        # ===== Backwards Compatibility (hidden) =====
+        # These parameters are kept for backwards compatibility with existing workflows
+        self.add_parameter(
+            ParameterList(
+                name="object_images",
+                tooltip="[Deprecated] Use reference_images instead.",
+                input_types=["ImageArtifact", "ImageUrlArtifact"],
+                allowed_modes={ParameterMode.INPUT},
+                ui_options={"hide": True},
+            )
+        )
+        self.add_parameter(
+            ParameterList(
+                name="human_images",
+                tooltip="[Deprecated] Use reference_images instead.",
+                input_types=["ImageArtifact", "ImageUrlArtifact"],
+                allowed_modes={ParameterMode.INPUT},
+                ui_options={"hide": True},
             )
         )
 
@@ -573,7 +594,22 @@ class NanoBananaProImageGenerator(ControlNode):
         use_google_search = self.get_parameter_value("use_google_search")
         temperature = self.get_parameter_value("temperature")
 
-        input_images = self.get_parameter_value("input_images")
+        reference_images = self.get_parameter_value("reference_images") or []
+
+        # Backwards compatibility: collect images from deprecated parameters
+        object_images = self.get_parameter_value("object_images") or []
+        human_images = self.get_parameter_value("human_images") or []
+
+        # Normalize to lists
+        if not isinstance(reference_images, list):
+            reference_images = [reference_images]
+        if not isinstance(object_images, list):
+            object_images = [object_images]
+        if not isinstance(human_images, list):
+            human_images = [human_images]
+
+        # Concatenate all images (deprecated params appended to reference_images)
+        all_images = reference_images + object_images + human_images
 
         # Model name is the same for both APIs
         model = "gemini-3-pro-image-preview"
@@ -582,8 +618,8 @@ class NanoBananaProImageGenerator(ControlNode):
         self._log(f"🤖 Model: {model}")
 
         # Validate inputs
-        if not prompt and not input_images:
-            self._log("❌ Provide at least a prompt or input images.")
+        if not prompt and not all_images:
+            self._log("❌ Provide at least a prompt or reference images.")
             return
 
         try:
@@ -662,7 +698,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 client=client,
                 model=model,
                 prompt=prompt,
-                input_images=input_images,
+                input_images=all_images,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
                 use_google_search=use_google_search,
