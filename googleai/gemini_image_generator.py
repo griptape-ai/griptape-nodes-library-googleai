@@ -90,17 +90,6 @@ class GeminiImageGenerator(ControlNode):
             )
         )
 
-        self.add_parameter(
-            Parameter(
-                name="model",
-                type="str",
-                tooltip="Gemini model for image generation.",
-                default_value="gemini-2.5-flash-image",
-                traits=[Options(choices=["gemini-2.5-flash-image", "gemini-2.5-flash-image-preview"])],
-                allowed_modes={ParameterMode.PROPERTY},
-            )
-        )
-
         # Image configuration
         self.add_parameter(
             Parameter(
@@ -365,7 +354,7 @@ class GeminiImageGenerator(ControlNode):
         if not (0.0 <= eff_temperature <= 1.0):
             error_msg = (
                 f"❌ Temperature must be between 0.0 and 1.0 for image generation models. "
-                f"Got: {eff_temperature}. The gemini-2.5-flash-image-preview model has "
+                f"Got: {eff_temperature}. The gemini-2.5-flash-image model has "
                 f"more restrictive temperature constraints than text generation models."
             )
             self._log(error_msg)
@@ -484,8 +473,10 @@ class GeminiImageGenerator(ControlNode):
 
         # Inputs
         prompt = self.get_parameter_value("prompt")
-        model = self.get_parameter_value("model")
         location = self.get_parameter_value("location")
+
+        # Model is hardcoded (preview version is deprecated)
+        model = "gemini-2.5-flash-image"
         aspect_ratio = self.get_parameter_value("aspect_ratio")
 
         input_images = self.get_parameter_value("input_images")
