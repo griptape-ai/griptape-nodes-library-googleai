@@ -29,7 +29,7 @@ try:
 except Exception:
     REQUESTS_INSTALLED = False
 
-from googleai.utils import shrink_image_to_limit
+from googleai.utils import validate_and_maybe_shrink_image
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -148,6 +148,16 @@ class NanoBananaProImageGenerator(ControlNode):
                 input_types=["ImageArtifact", "ImageUrlArtifact"],
                 allowed_modes={ParameterMode.INPUT},
                 ui_options={"hide": True},
+            )
+        )
+
+        self.add_parameter(
+            Parameter(
+                name="strict_image_size",
+                type="bool",
+                tooltip="If enabled, fail when input images exceed 7 MB instead of auto-shrinking them.",
+                default_value=False,
+                allowed_modes={ParameterMode.PROPERTY},
             )
         )
 
@@ -284,12 +294,15 @@ class NanoBananaProImageGenerator(ControlNode):
         static_url = GriptapeNodes.StaticFilesManager().save_static_file(image_bytes, filename)
         return ImageUrlArtifact(value=static_url, name=f"gemini_3_pro_image_{timestamp}")
 
-    def _image_artifact_to_pil_image(self, art: Any, suggested_name: str = None) -> PILImage.Image:
+    def _image_artifact_to_pil_image(
+        self, art: Any, suggested_name: str = None, strict_image_size: bool = False
+    ) -> PILImage.Image:
         """Convert ImageArtifact or ImageUrlArtifact to PIL Image.
 
         Args:
             art: ImageArtifact or ImageUrlArtifact
             suggested_name: Optional name hint for the image (for logging/debugging)
+            strict_image_size: If True, fail when image exceeds 7 MB instead of auto-shrinking
         """
         if not PIL_INSTALLED:
             raise RuntimeError("Pillow is required to process images. Install 'Pillow' to enable.")
@@ -308,26 +321,17 @@ class NanoBananaProImageGenerator(ControlNode):
         else:
             raise TypeError(f"Unsupported image artifact type: {type(art)}")
 
-        # Validate MIME type
-        if mime not in self.ALLOWED_IMAGE_MIME:
-            img_name = suggested_name or getattr(art, "name", "image")
-            error_msg = f"❌ Image '{img_name}' has unsupported MIME type: {mime}. Supported: {', '.join(self.ALLOWED_IMAGE_MIME)}"
-            self._log(error_msg)
-            raise ValueError(error_msg)
-
-        # Check size and shrink if needed
-        if len(image_bytes) > self.MAX_IMAGE_BYTES:
-            img_name = suggested_name or getattr(art, "name", "image")
-            size_mb = len(image_bytes) / (1024 * 1024)
-            self._log(f"ℹ️ Image '{img_name}' is {size_mb:.1f} MB; attempting to downscale to ≤ 7 MB...")
-            image_bytes, mime = shrink_image_to_limit(image_bytes, mime, self.MAX_IMAGE_BYTES, log_func=self._log)
-            if len(image_bytes) <= self.MAX_IMAGE_BYTES:
-                new_mb = len(image_bytes) / (1024 * 1024)
-                self._log(f"✅ Downscaled '{img_name}' to {new_mb:.2f} MB ({mime}).")
-            else:
-                error_msg = f"❌ Image '{img_name}' remains too large after downscaling."
-                self._log(error_msg)
-                raise ValueError(error_msg)
+        # Validate MIME type and size, shrink if needed
+        img_name = suggested_name or getattr(art, "name", "image")
+        image_bytes, mime = validate_and_maybe_shrink_image(
+            image_bytes=image_bytes,
+            mime_type=mime,
+            image_name=img_name,
+            allowed_mimes=self.ALLOWED_IMAGE_MIME,
+            byte_limit=self.MAX_IMAGE_BYTES,
+            strict_size=strict_image_size,
+            log_func=self._log,
+        )
 
         # Convert to PIL Image
         pil_img = PILImage.open(_io.BytesIO(image_bytes))
@@ -335,11 +339,12 @@ class NanoBananaProImageGenerator(ControlNode):
             pil_img.filename = suggested_name
         return pil_img
 
-    def _process_images(self, input_images: list) -> list[PILImage.Image]:
+    def _process_images(self, input_images: list, strict_image_size: bool = False) -> list[PILImage.Image]:
         """Process and validate input images, return PIL Images.
 
         Args:
             input_images: List of ImageArtifact or ImageUrlArtifact
+            strict_image_size: If True, fail when image exceeds 7 MB instead of auto-shrinking
 
         Returns:
             List of PIL Images (max 14)
@@ -355,7 +360,9 @@ class NanoBananaProImageGenerator(ControlNode):
         for img_idx, img_art in enumerate(images[: self.MAX_PROMPT_IMAGES]):
             try:
                 suggested_name = f"image{img_idx + 1}"
-                pil_img = self._image_artifact_to_pil_image(img_art, suggested_name=suggested_name)
+                pil_img = self._image_artifact_to_pil_image(
+                    img_art, suggested_name=suggested_name, strict_image_size=strict_image_size
+                )
                 pil_images.append(pil_img)
             except Exception as e:
                 img_name = getattr(img_art, "name", f"image_{img_idx + 1}")
@@ -377,10 +384,11 @@ class NanoBananaProImageGenerator(ControlNode):
         image_size,
         use_google_search,
         temperature,
+        strict_image_size,
     ):
         """Generate image using Gemini 3 Pro and process response."""
         # Process input images
-        pil_images = self._process_images(input_images)
+        pil_images = self._process_images(input_images, strict_image_size=strict_image_size)
 
         self._log(f"📸 Processing {len(pil_images)} input image(s)...")
 
@@ -598,6 +606,7 @@ class NanoBananaProImageGenerator(ControlNode):
         temperature = self.get_parameter_value("temperature")
 
         reference_images = self.get_parameter_value("reference_images") or []
+        strict_image_size = self.get_parameter_value("strict_image_size")
 
         # Backwards compatibility: collect images from deprecated parameters
         object_images = self.get_parameter_value("object_images") or []
@@ -706,6 +715,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 image_size=image_size,
                 use_google_search=use_google_search,
                 temperature=temperature,
+                strict_image_size=strict_image_size,
             )
 
         except ValueError as e:

@@ -32,7 +32,7 @@ try:
 except Exception:
     REQUESTS_INSTALLED = False
 
-from googleai.utils import shrink_image_to_limit
+from googleai.utils import validate_and_maybe_shrink_image
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -161,6 +161,16 @@ class GeminiImageGenerator(ControlNode):
             )
         )
 
+        self.add_parameter(
+            Parameter(
+                name="strict_image_size",
+                type="bool",
+                tooltip="If enabled, fail when input images exceed 7 MB instead of auto-shrinking them.",
+                default_value=False,
+                allowed_modes={ParameterMode.PROPERTY},
+            )
+        )
+
         # ===== Output =====
         self.add_parameter(
             Parameter(
@@ -280,6 +290,7 @@ class GeminiImageGenerator(ControlNode):
         top_p,
         candidate_count,
         aspect_ratio,
+        strict_image_size,
     ):
         # Build parts list for REST API
         parts: list[dict] = []
@@ -298,24 +309,16 @@ class GeminiImageGenerator(ControlNode):
                 break
             try:
                 b, mime = self._image_artifact_to_bytes_mime(img_art)
-                if mime not in self.ALLOWED_IMAGE_MIME:
-                    img_name = getattr(img_art, "name", f"image_{img_idx + 1}")
-                    error_msg = f"❌ Image '{img_name}' has unsupported MIME type: {mime}. Supported types: {', '.join(self.ALLOWED_IMAGE_MIME)}"
-                    self._log(error_msg)
-                    raise ValueError(error_msg)
-                if len(b) > self.MAX_IMAGE_BYTES:
-                    img_name = getattr(img_art, "name", f"image_{img_idx + 1}")
-                    size_mb = len(b) / (1024 * 1024)
-                    self._log(f"ℹ️ Image '{img_name}' is {size_mb:.1f} MB; attempting to downscale to ≤ 7 MB...")
-                    b2, mime2 = shrink_image_to_limit(b, mime, self.MAX_IMAGE_BYTES, log_func=self._log)
-                    if len(b2) <= self.MAX_IMAGE_BYTES:
-                        new_mb = len(b2) / (1024 * 1024)
-                        self._log(f"✅ Downscaled '{img_name}' to {new_mb:.2f} MB ({mime2}).")
-                        b, mime = b2, mime2
-                    else:
-                        error_msg = f"❌ Image '{img_name}' remains too large after downscaling."
-                        self._log(error_msg)
-                        raise ValueError(error_msg)
+                img_name = getattr(img_art, "name", f"image_{img_idx + 1}")
+                b, mime = validate_and_maybe_shrink_image(
+                    image_bytes=b,
+                    mime_type=mime,
+                    image_name=img_name,
+                    allowed_mimes=self.ALLOWED_IMAGE_MIME,
+                    byte_limit=self.MAX_IMAGE_BYTES,
+                    strict_size=strict_image_size,
+                    log_func=self._log,
+                )
                 # REST API format: inlineData with base64 (Vertex v1)
                 parts.append({"inlineData": {"mimeType": mime, "data": base64.b64encode(b).decode("utf-8")}})
                 kept += 1
@@ -487,6 +490,7 @@ class GeminiImageGenerator(ControlNode):
 
         input_images = self.get_parameter_value("input_images")
         input_files = self.get_parameter_value("input_files")
+        strict_image_size = self.get_parameter_value("strict_image_size")
 
         temperature = self.get_parameter_value("temperature")
         top_p = self.get_parameter_value("top_p")
@@ -540,6 +544,7 @@ class GeminiImageGenerator(ControlNode):
                 top_p=top_p,
                 candidate_count=candidate_count,
                 aspect_ratio=aspect_ratio,
+                strict_image_size=strict_image_size,
             )
 
         except Exception as e:

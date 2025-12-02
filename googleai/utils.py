@@ -1,5 +1,7 @@
 """Common utilities for GoogleAI nodes."""
 
+from typing import Callable
+
 try:
     import io as _io
 
@@ -8,6 +10,67 @@ try:
     PIL_INSTALLED = True
 except Exception:
     PIL_INSTALLED = False
+
+
+def validate_and_maybe_shrink_image(
+    image_bytes: bytes,
+    mime_type: str,
+    image_name: str,
+    allowed_mimes: set[str],
+    byte_limit: int,
+    strict_size: bool = False,
+    log_func: Callable[[str], None] | None = None,
+) -> tuple[bytes, str]:
+    """Validate image MIME type and size, optionally shrinking if too large.
+
+    Args:
+        image_bytes: Raw image bytes
+        mime_type: MIME type of the image
+        image_name: Name/identifier for error messages
+        allowed_mimes: Set of allowed MIME types
+        byte_limit: Maximum allowed size in bytes
+        strict_size: If True, fail when image exceeds limit instead of shrinking
+        log_func: Optional logging function
+
+    Returns:
+        Tuple of (bytes, mime_type) - possibly converted/compressed
+
+    Raises:
+        ValueError: If MIME type is not allowed, or image is too large (strict mode or shrink failed)
+    """
+
+    def _log(msg: str):
+        if log_func:
+            log_func(msg)
+
+    # Validate MIME type
+    if mime_type not in allowed_mimes:
+        error_msg = f"❌ Image '{image_name}' has unsupported MIME type: {mime_type}. Supported: {', '.join(allowed_mimes)}"
+        _log(error_msg)
+        raise ValueError(error_msg)
+
+    # Check size
+    if len(image_bytes) > byte_limit:
+        size_mb = len(image_bytes) / (1024 * 1024)
+        limit_mb = byte_limit / (1024 * 1024)
+
+        if strict_size:
+            error_msg = f"❌ Image '{image_name}' is {size_mb:.1f} MB, which exceeds the {limit_mb:.0f} MB limit. Resize the image or disable 'strict_image_size' to allow auto-shrinking."
+            _log(error_msg)
+            raise ValueError(error_msg)
+
+        _log(f"ℹ️ Image '{image_name}' is {size_mb:.1f} MB; attempting to downscale to ≤ {limit_mb:.0f} MB...")
+        image_bytes, mime_type = shrink_image_to_limit(image_bytes, mime_type, byte_limit, log_func=log_func)
+
+        if len(image_bytes) <= byte_limit:
+            new_mb = len(image_bytes) / (1024 * 1024)
+            _log(f"✅ Downscaled '{image_name}' to {new_mb:.2f} MB ({mime_type}).")
+        else:
+            error_msg = f"❌ Image '{image_name}' remains too large after downscaling."
+            _log(error_msg)
+            raise ValueError(error_msg)
+
+    return image_bytes, mime_type
 
 
 def shrink_image_to_limit(
