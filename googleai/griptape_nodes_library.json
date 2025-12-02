@@ -106,8 +106,8 @@
             "file_path": "gemini_image_generator.py",
             "metadata": {
                 "category": "image/googleai",
-                "description": "Generates images using Google's Gemini models.",
-                "display_name": "Gemini Image Generator"
+                "description": "Generates images using Google's Gemini 2.5 Flash model (Nano Banana).",
+                "display_name": "Nano Banana Image Generator"
             }
         },
         {
@@ -115,7 +115,7 @@
             "file_path": "gemini_3_pro_image_generator.py",
             "metadata": {
                 "category": "image/googleai",
-                "description": "Generates images using Google's Gemini 3 Pro model (Nano Banana Pro) with support for up to 6 object images, 5 human images, and 4K resolution. Supports both Vertex AI and AI Studio API.",
+                "description": "Generates images using Google's Gemini 3 Pro model (Nano Banana Pro). Supports both Vertex AI and AI Studio API.",
                 "display_name": "Nano Banana Pro Image Generator"
             }
         },
