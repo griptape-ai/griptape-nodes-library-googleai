@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import time
 from typing import Any, ClassVar
@@ -24,6 +25,8 @@ try:
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
+
+logger = logging.getLogger("griptape_nodes_library_googleai")
 
 # Only models that support reference images
 MODELS = [
@@ -367,7 +370,7 @@ class VeoTextToVideoWithRef(ControlNode):
 
     def _log(self, message: str):
         """Append a message to the logs output parameter."""
-        print(message)
+        logger.info(message)
         self.append_value_to_parameter("logs", message + "\n")
 
     def _reset_outputs(self) -> None:

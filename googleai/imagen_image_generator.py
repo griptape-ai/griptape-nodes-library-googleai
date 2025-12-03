@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import time
 from typing import Any, ClassVar
@@ -21,6 +22,8 @@ try:
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
+
+logger = logging.getLogger("griptape_nodes_library_googleai")
 
 MODELS = [
     "imagen-4.0-generate-001",
@@ -213,6 +216,7 @@ class VertexAIImageGenerator(ControlNode):
 
     def _log(self, message: str):
         """Append a message to the logs output parameter."""
+        logger.info(message)
         self.append_value_to_parameter("logs", message + "\n")
 
     def _get_project_id(self, service_account_file: str) -> str:

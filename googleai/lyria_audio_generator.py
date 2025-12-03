@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import time
 
@@ -20,6 +21,8 @@ try:
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
+
+logger = logging.getLogger("griptape_nodes_library_googleai")
 
 
 class LyriaAudioGenerator(ControlNode):
@@ -119,7 +122,7 @@ class LyriaAudioGenerator(ControlNode):
 
     def _log(self, message: str):
         """Append a message to the logs output parameter."""
-        print(message)
+        logger.info(message)
         self.append_value_to_parameter("logs", message + "\n")
 
     def _get_project_id(self, service_account_file: str) -> str:
