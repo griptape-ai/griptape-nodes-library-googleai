@@ -8,6 +8,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, Param
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
 from griptape_nodes.traits.options import Options
 
 try:
@@ -296,7 +297,7 @@ class NanoBananaProImageGenerator(ControlNode):
             "image/webp": "webp",
         }.get(mime_type, "png")
         filename = f"Gemini3ProImage_{timestamp}_{content_hash}.{ext}"
-        static_url = GriptapeNodes.StaticFilesManager().save_static_file(image_bytes, filename)
+        static_url = GriptapeNodes.StaticFilesManager().save_static_file(image_bytes, filename, ExistingFilePolicy.CREATE_NEW)
         return ImageUrlArtifact(value=static_url, name=f"gemini_3_pro_image_{timestamp}")
 
     def _image_artifact_to_pil_image(
