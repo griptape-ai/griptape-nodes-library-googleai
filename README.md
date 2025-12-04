@@ -64,25 +64,24 @@ This library uses **library-level settings** for authentication, making it easy 
 
 ### Step 1: Configure Library Settings
 
-When you install this library in Griptape Nodes, you'll need to configure your Google Cloud credentials in the library settings:
+When you install this library in Griptape Nodes, you'll need to configure your Google Cloud credentials in the API Keys and Secrets settings:
 
 1. **Open Griptape Nodes Settings**
-1. **Navigate to Libraries**
-1. **Find "Google AI" library settings**
+1. **Navigate to API Keys & Secrets**
 1. **Configure one of the authentication methods below**
 
 ### Method 1: Service Account File (Recommended)
 
 1. **Create a Service Account** (see detailed steps below)
 1. **Download the JSON key file**
-1. **Set the file path in library settings**:
+1. **Set the file path in API Keys & Secrets**:
     - `GOOGLE_SERVICE_ACCOUNT_FILE_PATH`: Full path to your service account JSON file
 
 ### Method 2: JSON Credentials
 
 1. **Create a Service Account** (see detailed steps below)
 1. **Copy the entire JSON content**
-1. **Set the credentials in library settings**:
+1. **Set the credentials in API Keys & Secrets**:
     - `GOOGLE_CLOUD_PROJECT_ID`: Your Google Cloud project ID
     - `GOOGLE_APPLICATION_CREDENTIALS_JSON`: Paste the entire JSON content
 
@@ -93,7 +92,7 @@ When you install this library in Griptape Nodes, you'll need to configure your G
     gcloud auth login
     gcloud config set project YOUR_PROJECT_ID
     ```
-1. **Set the project ID in library settings**:
+1. **Set the project ID in API Keys & Secrets**:
     - `GOOGLE_CLOUD_PROJECT_ID`: Your Google Cloud project ID
 
 ______________________________________________________________________
