@@ -8,6 +8,7 @@ from griptape.artifacts import ImageUrlArtifact
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
@@ -92,14 +93,9 @@ class VertexAIImageGenerator(ControlNode):
             )
         )
 
-        self.add_parameter(
-            ParameterInt(
-                name="seed",
-                tooltip="Optional. The random seed for image generation. This isn't available when addWatermark is set to true.",
-                default_value=0,
-                allow_output=False,
-            )
-        )
+        # Seed parameter component
+        self._seed_parameter = SeedParameter(self)
+        self._seed_parameter.add_input_parameters()
 
         self.add_parameter(
             ParameterInt(
@@ -213,6 +209,11 @@ class VertexAIImageGenerator(ControlNode):
 
         logs_group.ui_options = {"hide": True}  # Hide the logs group by default.
         self.add_node_element(logs_group)
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        """Handle parameter value changes."""
+        self._seed_parameter.after_value_set(parameter, value)
+        return super().after_value_set(parameter, value)
 
     def _log(self, message: str):
         """Append a message to the logs output parameter."""
@@ -362,7 +363,8 @@ class VertexAIImageGenerator(ControlNode):
         prompt = self.get_parameter_value("prompt")
         model = self.get_parameter_value("model")
         number_of_images = self.get_parameter_value("number_of_images")
-        seed = self.get_parameter_value("seed")
+        self._seed_parameter.preprocess()
+        seed = self._seed_parameter.get_seed()
         negative_prompt = self.get_parameter_value("negative_prompt")
         aspect_ratio = self.get_parameter_value("aspect_ratio")
         output_mime_type = self.get_parameter_value("output_mime_type")

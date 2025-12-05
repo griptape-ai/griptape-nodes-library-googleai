@@ -9,6 +9,7 @@ from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -175,14 +176,9 @@ class VeoImageToVideoGenerator(ControlNode):
             )
         )
 
-        self.add_parameter(
-            ParameterInt(
-                name="seed",
-                tooltip="Optional: Seed number for deterministic generation (0-4294967295).",
-                default_value=0,
-                allow_output=False,
-            )
-        )
+        # Seed parameter component
+        self._seed_parameter = SeedParameter(self)
+        self._seed_parameter.add_input_parameters()
 
         # Duration parameter (choices vary by model)
         default_model = self.get_parameter_value("model") or MODELS[0]
@@ -346,6 +342,7 @@ class VeoImageToVideoGenerator(ControlNode):
             self.show_parameter_by_name("video_artifacts")
         elif parameter.name == "number_of_videos":
             self._update_video_output_visibility(value)
+        self._seed_parameter.after_value_set(parameter, value)
         return super().after_value_set(parameter, value)
 
     def _log(self, message: str):
@@ -586,7 +583,8 @@ class VeoImageToVideoGenerator(ControlNode):
         resolution = self.get_parameter_value("resolution")
         duration = self.get_parameter_value("duration")
 
-        seed = self.get_parameter_value("seed")
+        self._seed_parameter.preprocess()
+        seed = self._seed_parameter.get_seed()
         location = self.get_parameter_value("location")
 
         # Debug: Log aspect ratio value immediately after reading
@@ -718,6 +716,13 @@ class VeoImageToVideoGenerator(ControlNode):
                     mime_type=mime_last_frame,
                 )
 
+            # Add seed - SeedParameter handles randomization logic
+            config_kwargs["seed"] = seed
+
+            # Add negative prompt if provided - goes in config
+            if negative_prompt:
+                config_kwargs["negative_prompt"] = negative_prompt
+
             self._log(f"📦 Config kwargs: {config_kwargs}")
             config = GenerateVideosConfig(**config_kwargs)
             # Log what's actually in the config object
@@ -736,14 +741,6 @@ class VeoImageToVideoGenerator(ControlNode):
             # Add prompt if provided
             if prompt:
                 api_params["prompt"] = prompt
-
-            # Add negative prompt if provided
-            if negative_prompt:
-                api_params["negative_prompt"] = negative_prompt
-
-            # Add seed if provided (non-zero)
-            if seed and seed > 0:
-                api_params["seed"] = seed
 
             operation = client.models.generate_videos(**api_params)
 
