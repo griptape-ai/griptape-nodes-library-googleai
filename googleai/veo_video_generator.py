@@ -556,20 +556,20 @@ class VeoVideoGenerator(ControlNode):
             if generate_audio:
                 config_kwargs["generate_audio"] = True
 
+            # Add seed if provided (non-zero) - seed goes in config
+            if seed and seed > 0:
+                config_kwargs["seed"] = seed
+
+            # Add negative prompt if provided - goes in config
+            if negative_prompt:
+                config_kwargs["negative_prompt"] = negative_prompt
+
             # Build API parameters
             api_params = {
                 "model": model,
                 "prompt": prompt,
                 "config": GenerateVideosConfig(**config_kwargs),
             }
-
-            # Add negative prompt if provided
-            if negative_prompt:
-                api_params["negative_prompt"] = negative_prompt
-
-            # Add seed if provided (non-zero)
-            if seed and seed > 0:
-                api_params["seed"] = seed
 
             operation = client.models.generate_videos(**api_params)
 
