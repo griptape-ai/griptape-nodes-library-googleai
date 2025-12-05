@@ -2,12 +2,14 @@ import json
 import logging
 import os
 import time
+from typing import Any
 
 import requests
 from griptape.artifacts import AudioUrlArtifact
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
@@ -61,26 +63,9 @@ class LyriaAudioGenerator(ControlNode):
             )
         )
 
-        self.add_parameter(
-            Parameter(
-                name="use_seed",
-                type="bool",
-                tooltip="Use a seed for deterministic generation.",
-                default_value=False,
-                allowed_modes={ParameterMode.PROPERTY},
-            )
-        )
-
-        self.add_parameter(
-            Parameter(
-                name="seed",
-                type="int",
-                tooltip="Seed for deterministic generation (only used when 'Use seed' is checked).",
-                default_value=12345,
-                ui_options={"hide_when": {"use_seed": False}},
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
-            )
-        )
+        # Seed parameter component
+        self._seed_parameter = SeedParameter(self)
+        self._seed_parameter.add_input_parameters()
 
         self.add_parameter(
             Parameter(
@@ -120,6 +105,11 @@ class LyriaAudioGenerator(ControlNode):
         logs_group.ui_options = {"hide": True}
         self.add_node_element(logs_group)
 
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        """Handle parameter value changes."""
+        self._seed_parameter.after_value_set(parameter, value)
+        return super().after_value_set(parameter, value)
+
     def _log(self, message: str):
         """Append a message to the logs output parameter."""
         logger.info(message)
@@ -145,7 +135,7 @@ class LyriaAudioGenerator(ControlNode):
         credentials.refresh(request)
         return credentials.token
 
-    def _generate_audio(self, final_project_id, credentials, prompt, negative_prompt, use_seed, seed, location) -> None:
+    def _generate_audio(self, final_project_id, credentials, prompt, negative_prompt, seed, location) -> None:
         """Generate audio and process result - called via yield."""
         try:
             # Get access token
@@ -162,8 +152,8 @@ class LyriaAudioGenerator(ControlNode):
             if negative_prompt:
                 instance["negative_prompt"] = negative_prompt
 
-            if use_seed:
-                instance["seed"] = seed
+            # Add seed - SeedParameter handles randomization logic
+            instance["seed"] = seed
 
             # Build parameters - hardcoded to 1 due to API limitation
             parameters = {"sample_count": 1}
@@ -178,10 +168,7 @@ class LyriaAudioGenerator(ControlNode):
             self._log(f"🎵 Generating audio for prompt: '{prompt}'")
             if negative_prompt:
                 self._log(f"🚫 Negative prompt: '{negative_prompt}'")
-            if use_seed:
-                self._log(f"🎲 Using seed: {seed}")
-            else:
-                self._log("🎵 Generating 1 audio clip")
+            self._log(f"🎲 Using seed: {seed}")
 
             # Log helpful tip for avoiding recitation blocks
             self._log("💡 TIP: If you get blocked by recitation checks, try more unique/creative prompts!")
@@ -356,8 +343,8 @@ class LyriaAudioGenerator(ControlNode):
         # Get input values
         prompt = self.get_parameter_value("prompt")
         negative_prompt = self.get_parameter_value("negative_prompt")
-        use_seed = self.get_parameter_value("use_seed")
-        seed = self.get_parameter_value("seed")
+        self._seed_parameter.preprocess()
+        seed = self._seed_parameter.get_seed()
         location = self.get_parameter_value("location")
 
         # Validate inputs
@@ -421,7 +408,7 @@ class LyriaAudioGenerator(ControlNode):
             aiplatform.init(project=final_project_id, location=location, credentials=credentials)
 
             # Generate the audio
-            self._generate_audio(final_project_id, credentials, prompt, negative_prompt, use_seed, seed, location)
+            self._generate_audio(final_project_id, credentials, prompt, negative_prompt, seed, location)
 
         except ValueError as e:
             self._log(f"❌ CONFIGURATION ERROR: {e}")

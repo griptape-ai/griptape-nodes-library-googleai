@@ -8,6 +8,7 @@ from griptape.artifacts import VideoUrlArtifact
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -132,14 +133,9 @@ class VeoVideoGenerator(ControlNode):
             )
         )
 
-        self.add_parameter(
-            ParameterInt(
-                name="seed",
-                tooltip="Optional: Seed number for deterministic generation (0-4294967295).",
-                default_value=0,
-                allow_output=False,
-            )
-        )
+        # Seed parameter component
+        self._seed_parameter = SeedParameter(self)
+        self._seed_parameter.add_input_parameters()
 
         # Duration parameter (choices vary by model)
         default_model = self.get_parameter_value("model") or MODELS[0]
@@ -306,6 +302,7 @@ class VeoVideoGenerator(ControlNode):
             self._update_duration_choices_for_model(value)
         elif parameter.name == "number_of_videos":
             self._update_video_output_visibility(value)
+        self._seed_parameter.after_value_set(parameter, value)
         return super().after_value_set(parameter, value)
 
     def _log(self, message: str):
@@ -469,7 +466,8 @@ class VeoVideoGenerator(ControlNode):
         model = self.get_parameter_value("model")
         aspect_ratio = self.get_parameter_value("aspect_ratio")
         resolution = self.get_parameter_value("resolution")
-        seed = self.get_parameter_value("seed")
+        self._seed_parameter.preprocess()
+        seed = self._seed_parameter.get_seed()
         duration = self.get_parameter_value("duration")
         generate_audio = self.get_parameter_value("generate_audio")
         num_videos = self.get_parameter_value("number_of_videos")
@@ -556,9 +554,8 @@ class VeoVideoGenerator(ControlNode):
             if generate_audio:
                 config_kwargs["generate_audio"] = True
 
-            # Add seed if provided (non-zero) - seed goes in config
-            if seed and seed > 0:
-                config_kwargs["seed"] = seed
+            # Add seed - SeedParameter handles randomization logic
+            config_kwargs["seed"] = seed
 
             # Add negative prompt if provided - goes in config
             if negative_prompt:
