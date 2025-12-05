@@ -46,11 +46,13 @@ try:
         from google.genai.types import ImageConfig
 
         IMAGE_CONFIG_AVAILABLE = True
-    except (ImportError, AttributeError):
+    except (ImportError, AttributeError) as e:
+        logger.error(f"ImageConfig not available: {e}")
         IMAGE_CONFIG_AVAILABLE = False
 
     GOOGLE_INSTALLED = True
-except ImportError:
+except ImportError as e:
+    logger.error(f"Google libraries not installed: {e}")
     GOOGLE_INSTALLED = False
     IMAGE_CONFIG_AVAILABLE = False
     GOOGLE_GENAI_VERSION = "not installed"
