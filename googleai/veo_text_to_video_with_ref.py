@@ -155,15 +155,6 @@ class VeoTextToVideoWithRef(ControlNode):
             )
         )
 
-        self.add_parameter(
-            ParameterInt(
-                name="seed",
-                tooltip="Optional: Seed number for deterministic generation (0-4294967295).",
-                default_value=0,
-                allow_output=False,
-            )
-        )
-
         # Duration parameter (choices vary by model)
         default_model = self.get_parameter_value("model") or MODELS[0]
         default_capabilities = MODEL_CAPABILITIES.get(default_model, MODEL_CAPABILITIES[MODELS[0]])
@@ -585,7 +576,6 @@ class VeoTextToVideoWithRef(ControlNode):
         model = self.get_parameter_value("model")
         aspect_ratio = self.get_parameter_value("aspect_ratio")
         resolution = self.get_parameter_value("resolution")
-        seed = self.get_parameter_value("seed")
         duration = self.get_parameter_value("duration")
         generate_audio = self.get_parameter_value("generate_audio")
         num_videos = self.get_parameter_value("number_of_videos")
@@ -740,10 +730,6 @@ class VeoTextToVideoWithRef(ControlNode):
             # Add generateAudio if provided (Veo 3 models only)
             if generate_audio:
                 config_kwargs["generate_audio"] = True
-
-            # Add seed if provided (non-zero) - seed goes in config/parameters
-            if seed and seed > 0:
-                config_kwargs["seed"] = seed
 
             # Build API parameters
             api_params = {
