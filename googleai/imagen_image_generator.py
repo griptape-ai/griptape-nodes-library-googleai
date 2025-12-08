@@ -18,11 +18,12 @@ try:
     from google import genai
     from google.cloud import aiplatform, storage
     from google.genai import types
-    from google.oauth2 import service_account
 
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
+
+from googleai_utils import GoogleAuthHelper
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -43,9 +44,6 @@ class VertexAIImageGenerator(ControlNode):
 
     # Service constants for configuration
     SERVICE = "GoogleAI"
-    SERVICE_ACCOUNT_FILE_PATH = "GOOGLE_SERVICE_ACCOUNT_FILE_PATH"
-    PROJECT_ID = "GOOGLE_CLOUD_PROJECT_ID"
-    CREDENTIALS_JSON = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -220,19 +218,6 @@ class VertexAIImageGenerator(ControlNode):
         logger.info(message)
         self.append_value_to_parameter("logs", message + "\n")
 
-    def _get_project_id(self, service_account_file: str) -> str:
-        """Read the project_id from the service account JSON file."""
-        if not os.path.exists(service_account_file):
-            raise FileNotFoundError(f"Service account file not found: {service_account_file}")
-
-        with open(service_account_file) as f:
-            service_account_info = json.load(f)
-
-        project_id = service_account_info.get("project_id")
-        if not project_id:
-            raise ValueError("No 'project_id' found in the service account file.")
-
-        return project_id
 
     def _get_gcs_client(self, project_id: str, credentials):
         """Get a cached or new GCS client."""
@@ -381,47 +366,15 @@ class VertexAIImageGenerator(ControlNode):
             return
 
         try:
-            final_project_id = None
-            credentials = None
+            # Use GoogleAuthHelper for authentication
+            credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
+                GriptapeNodes.SecretsManager(),
+                log_func=self._log
+            )
 
-            # Try service account file first
-            service_account_file = GriptapeNodes.SecretsManager().get_secret(f"{self.SERVICE_ACCOUNT_FILE_PATH}")
-
-            if service_account_file and os.path.exists(service_account_file):
-                self._log("🔑 Using service account file for authentication.")
-                try:
-                    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_file
-                    final_project_id = self._get_project_id(service_account_file)
-                    credentials = service_account.Credentials.from_service_account_file(service_account_file)
-                    self._log(f"✅ Service account authentication successful for project: {final_project_id}")
-                except Exception as e:
-                    self._log(f"❌ Service account file authentication failed: {e}")
-                    raise
-            else:
-                # Fall back to individual credentials from settings
-                self._log("🔑 Service account file not found, using individual credentials from settings.")
-                project_id = GriptapeNodes.SecretsManager().get_secret(f"{self.PROJECT_ID}")
-                credentials_json = GriptapeNodes.SecretsManager().get_secret(f"{self.CREDENTIALS_JSON}")
-
-                if not project_id:
-                    raise ValueError(
-                        "❌ GOOGLE_CLOUD_PROJECT_ID must be set in library settings when not using a service account file."
-                    )
-
-                if credentials_json:
-                    try:
-                        import json
-
-                        cred_dict = json.loads(credentials_json)
-                        credentials = service_account.Credentials.from_service_account_info(cred_dict)
-                        self._log("✅ JSON credentials authentication successful.")
-                    except Exception as e:
-                        self._log(f"❌ JSON credentials authentication failed: {e}")
-                        raise
-                else:
-                    self._log("🔑 Using Application Default Credentials (e.g., gcloud auth).")
-
-                final_project_id = project_id
+            # Clear environment variable to avoid conflicts when using explicit credentials
+            if credentials:
+                os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
 
             self._log(f"Project ID: {final_project_id}")
             self._log("Initializing Vertex AI...")
@@ -452,7 +405,8 @@ class VertexAIImageGenerator(ControlNode):
         except ValueError as e:
             self._log(f"❌ CONFIGURATION ERROR: {e}")
             self._log("💡 Please set up Google Cloud credentials in the library settings:")
-            self._log("   - GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
+            self._log("   - GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH (recommended, path to workload identity config)")
+            self._log("   - OR GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
             self._log("   - OR GOOGLE_CLOUD_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON")
         except Exception as e:
             self._log(f"❌ An unexpected error occurred: {e}")

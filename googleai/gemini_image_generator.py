@@ -20,7 +20,6 @@ from griptape_nodes.traits.options import Options
 
 try:
     from google.auth.transport.requests import Request
-    from google.oauth2 import service_account
 
     GOOGLE_AUTH_INSTALLED = True
 except ImportError:
@@ -33,7 +32,7 @@ try:
 except Exception:
     REQUESTS_INSTALLED = False
 
-from googleai_utils import validate_and_maybe_shrink_image
+from googleai_utils import GoogleAuthHelper, validate_and_maybe_shrink_image
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -52,9 +51,6 @@ class GeminiImageGenerator(ControlNode):
     """
 
     SERVICE = "GoogleAI"
-    SERVICE_ACCOUNT_FILE_PATH = "GOOGLE_SERVICE_ACCOUNT_FILE_PATH"
-    PROJECT_ID = "GOOGLE_CLOUD_PROJECT_ID"
-    CREDENTIALS_JSON = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
 
     # Model constraints: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-5-flash-image
     MAX_PROMPT_IMAGES = 3
@@ -216,11 +212,6 @@ class GeminiImageGenerator(ControlNode):
             # Be defensive if the base class changes how outputs are stored
             pass
 
-    def _get_project_id(self, service_account_file: str) -> str:
-        if not os.path.exists(service_account_file):
-            raise FileNotFoundError(f"Service account file not found: {service_account_file}")
-        with open(service_account_file) as f:
-            return json.load(f).get("project_id")
 
     def _create_image_artifact(self, image_bytes: bytes, mime_type: str) -> ImageUrlArtifact:
         import hashlib
@@ -267,11 +258,6 @@ class GeminiImageGenerator(ControlNode):
             return data, mime
         raise TypeError("Unsupported file artifact type.")
 
-    def _get_access_token(self, credentials) -> str:
-        """Get access token from credentials."""
-        if not credentials.valid:
-            credentials.refresh(Request())
-        return credentials.token
 
     # ---------- Core generation ----------
     def _generate_and_process(
@@ -398,7 +384,7 @@ class GeminiImageGenerator(ControlNode):
             self._log(f"⚠️ Failed to build payload preview: {e}")
 
         # Make REST API call
-        access_token = self._get_access_token(credentials)
+        access_token = GoogleAuthHelper.get_access_token(credentials)
         api_endpoint = f"https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/google/models/{model}:generateContent"
 
         headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
@@ -487,32 +473,11 @@ class GeminiImageGenerator(ControlNode):
             return
 
         try:
-            # Auth
-            service_account_file = GriptapeNodes.SecretsManager().get_secret(f"{self.SERVICE_ACCOUNT_FILE_PATH}")
-            project_id = None
-            credentials = None
-
-            if service_account_file and os.path.exists(service_account_file):
-                project_id = self._get_project_id(service_account_file)
-                credentials = service_account.Credentials.from_service_account_file(
-                    service_account_file, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-                )
-                self._log(f"🔑 Authenticated with service account for project '{project_id}'.")
-            else:
-                project_id = GriptapeNodes.SecretsManager().get_secret(f"{self.PROJECT_ID}")
-                credentials_json = GriptapeNodes.SecretsManager().get_secret(f"{self.CREDENTIALS_JSON}")
-                if credentials_json:
-                    cred_dict = json.loads(credentials_json)
-                    credentials = service_account.Credentials.from_service_account_info(
-                        cred_dict, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-                    )
-                    project_id = cred_dict.get("project_id")
-                    self._log(f"🔑 Authenticated with JSON credentials for project '{project_id}'.")
-                else:
-                    raise ValueError("No credentials provided. Configure service account file or credentials JSON.")
-
-            if not project_id:
-                raise ValueError("Could not determine project ID from credentials.")
+            # Use GoogleAuthHelper for authentication
+            credentials, project_id = GoogleAuthHelper.get_credentials_and_project(
+                GriptapeNodes.SecretsManager(),
+                log_func=self._log
+            )
 
             self._log("🚀 Starting Gemini image generation...")
             self._generate_and_process(

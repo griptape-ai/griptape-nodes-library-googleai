@@ -58,42 +58,61 @@ This library automatically installs the following dependencies:
 
 ______________________________________________________________________
 
+## 🚀 Quick Start
+
+Choose your path:
+
+### Local Development (3 minutes)
+**Testing on your machine?**
+
+```bash
+gcloud auth application-default login
+gcloud config set project YOUR_PROJECT_ID
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="user:YOUR_EMAIL" --role="roles/aiplatform.user"
+```
+
+Set `GOOGLE_CLOUD_PROJECT_ID` in Griptape Nodes → Done! ✅
+
+---
+
+### Production Deployment
+
+**Running in Google Cloud?**
+- Cloud Run / GCE / GKE → Same as local setup, just attach a service account
+
+**Running outside Google Cloud?**
+- AWS / GitHub Actions / Azure → Use Workload Identity Federation (see below)
+
+______________________________________________________________________
+
 ## 1. Authentication & Setup
 
-This library uses **library-level settings** for authentication, making it easy to configure once and use across all Google AI nodes.
+This library supports multiple authentication methods. Choose the one that fits your needs:
 
-### Step 1: Configure Library Settings
+| Method | Use Case | Setup Time |
+|--------|----------|------------|
+| **Local ADC** | Local testing | 3 min |
+| **Cloud ADC** | Cloud Run/GCE/GKE | 5 min |
+| **Workload Identity** | AWS/GitHub/Azure | 10 min |
+| **Service Account** | Quick start | 5 min |
 
-When you install this library in Griptape Nodes, you'll need to configure your Google Cloud credentials in the API Keys and Secrets settings:
+### Quick Setup for Common Scenarios
 
-1. **Open Griptape Nodes Settings**
-1. **Navigate to API Keys & Secrets**
-1. **Configure one of the authentication methods below**
+**Scenario 1: Testing Locally**
+```bash
+# One-time setup
+gcloud auth application-default login
+export GOOGLE_CLOUD_PROJECT_ID="your-project-id"
+```
 
-### Method 1: Service Account File (Recommended)
+**Scenario 2: Deploying to Cloud Run**
+```bash
+# Create service account and deploy
+gcloud iam service-accounts create my-sa
+gcloud run deploy --service-account=my-sa@project.iam.gserviceaccount.com
+```
 
-1. **Create a Service Account** (see detailed steps below)
-1. **Download the JSON key file**
-1. **Set the file path in API Keys & Secrets**:
-    - `GOOGLE_SERVICE_ACCOUNT_FILE_PATH`: Full path to your service account JSON file
-
-### Method 2: JSON Credentials
-
-1. **Create a Service Account** (see detailed steps below)
-1. **Copy the entire JSON content**
-1. **Set the credentials in API Keys & Secrets**:
-    - `GOOGLE_CLOUD_PROJECT_ID`: Your Google Cloud project ID
-    - `GOOGLE_APPLICATION_CREDENTIALS_JSON`: Paste the entire JSON content
-
-### Method 3: Application Default Credentials (Local Development)
-
-1. **Install and configure gcloud CLI**:
-    ```bash
-    gcloud auth login
-    gcloud config set project YOUR_PROJECT_ID
-    ```
-1. **Set the project ID in API Keys & Secrets**:
-    - `GOOGLE_CLOUD_PROJECT_ID`: Your Google Cloud project ID
 
 ______________________________________________________________________
 
@@ -396,15 +415,16 @@ ______________________________________________________________________
 
 Configure these settings in your Griptape Nodes library settings:
 
-| Setting                               | Required   | Description                              |
-| ------------------------------------- | ---------- | ---------------------------------------- |
-| `GOOGLE_SERVICE_ACCOUNT_FILE_PATH`    | Optional\* | Full path to service account JSON file   |
-| `GOOGLE_CLOUD_PROJECT_ID`             | Optional\* | Your Google Cloud project ID             |
-| `GOOGLE_APPLICATION_CREDENTIALS_JSON` | Optional\* | Complete JSON content of service account |
+| Setting                               | Required   | Description                                            |
+| ------------------------------------- | ---------- | ------------------------------------------------------ |
+| `GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH`| Optional\* | Full path to workload identity federation config JSON  |
+| `GOOGLE_SERVICE_ACCOUNT_FILE_PATH`    | Optional\* | Full path to service account JSON file                 |
+| `GOOGLE_CLOUD_PROJECT_ID`             | Optional\* | Your Google Cloud project ID                           |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON` | Optional\* | Complete JSON content of service account               |
 
 \*At least one authentication method must be configured.
 
-**Priority Order**: Service account file → JSON credentials → Application Default Credentials
+**Priority Order**: Workload identity federation → Service account file → JSON credentials → Application Default Credentials
 
 ______________________________________________________________________
 
