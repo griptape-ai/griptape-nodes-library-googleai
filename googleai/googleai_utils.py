@@ -55,7 +55,7 @@ def validate_and_maybe_shrink_image(
         limit_mb = byte_limit / (1024 * 1024)
 
         if strict_size:
-            error_msg = f"❌ Image '{image_name}' is {size_mb:.1f} MB, which exceeds the {limit_mb:.0f} MB limit. Resize the image or disable 'strict_image_size' to allow auto-shrinking."
+            error_msg = f"❌ Image '{image_name}' is {size_mb:.1f} MB, which exceeds the {limit_mb:.0f} MB limit. Resize the image or disable 'disable_auto_image_resize' to allow auto-shrinking."
             _log(error_msg)
             raise ValueError(error_msg)
 

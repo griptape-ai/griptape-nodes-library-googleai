@@ -103,7 +103,7 @@ class GeminiImageGenerator(ControlNode):
 
         self.add_parameter(
             Parameter(
-                name="strict_image_size",
+                name="disable_auto_image_resize",
                 type="bool",
                 tooltip="If enabled, raises an error when input images exceed the 7MB limit. If disabled, oversized images are best-effort scaled to fit within the 7MB limit.",
                 default_value=False,
@@ -287,7 +287,7 @@ class GeminiImageGenerator(ControlNode):
         top_p,
         candidate_count,
         aspect_ratio,
-        strict_image_size,
+        disable_auto_image_resize,
     ):
         # Build parts list for REST API
         parts: list[dict] = []
@@ -313,7 +313,7 @@ class GeminiImageGenerator(ControlNode):
                     image_name=img_name,
                     allowed_mimes=self.ALLOWED_IMAGE_MIME,
                     byte_limit=self.MAX_IMAGE_BYTES,
-                    strict_size=strict_image_size,
+                    strict_size=disable_auto_image_resize,
                     log_func=self._log,
                 )
                 # REST API format: inlineData with base64 (Vertex v1)
@@ -473,7 +473,7 @@ class GeminiImageGenerator(ControlNode):
 
         input_images = self.get_parameter_value("input_images")
         input_files = self.get_parameter_value("input_files")
-        strict_image_size = self.get_parameter_value("strict_image_size")
+        disable_auto_image_resize = self.get_parameter_value("disable_auto_image_resize")
 
         temperature = self.get_parameter_value("temperature")
         top_p = self.get_parameter_value("top_p")
@@ -527,7 +527,7 @@ class GeminiImageGenerator(ControlNode):
                 top_p=top_p,
                 candidate_count=candidate_count,
                 aspect_ratio=aspect_ratio,
-                strict_image_size=strict_image_size,
+                disable_auto_image_resize=disable_auto_image_resize,
             )
 
         except Exception as e:
