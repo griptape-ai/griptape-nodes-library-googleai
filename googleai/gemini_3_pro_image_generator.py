@@ -107,7 +107,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 tooltip="Choose API provider: Vertex AI (requires service account) or AI Studio API (requires API key).",
                 default_value=VERTEX_AI,
                 traits=[Options(choices=[AI_STUDIO_API, VERTEX_AI])],
-                allowed_modes={ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
 
@@ -118,7 +118,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 tooltip="Google Cloud location for Vertex AI (only used with Vertex AI provider).",
                 default_value="global",
                 traits=[Options(choices=["global", "us-central1", "europe-west1", "asia-southeast1"])],
-                allowed_modes={ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
 
@@ -159,7 +159,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 type="bool",
                 tooltip="If enabled, fail when input images exceed 7 MB instead of auto-shrinking them.",
                 default_value=False,
-                allowed_modes={ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
 
@@ -181,7 +181,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 tooltip="Aspect ratio for generated images.",
                 default_value="16:9",
                 traits=[Options(choices=["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"])],
-                allowed_modes={ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
 
@@ -192,7 +192,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 tooltip="Resolution for generated images.",
                 default_value="2K",
                 traits=[Options(choices=["1K", "2K", "4K"])],
-                allowed_modes={ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
 
