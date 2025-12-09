@@ -18,7 +18,7 @@ def validate_and_maybe_shrink_image(
     image_name: str,
     allowed_mimes: set[str],
     byte_limit: int,
-    strict_size: bool = False,
+    auto_image_resize: bool = True,
     log_func: Callable[[str], None] | None = None,
 ) -> tuple[bytes, str]:
     """Validate image MIME type and size, optionally shrinking if too large.
@@ -29,7 +29,7 @@ def validate_and_maybe_shrink_image(
         image_name: Name/identifier for error messages
         allowed_mimes: Set of allowed MIME types
         byte_limit: Maximum allowed size in bytes
-        strict_size: If True, fail when image exceeds limit instead of shrinking
+        auto_image_resize: If False, fail when image exceeds limit instead of shrinking
         log_func: Optional logging function
 
     Returns:
@@ -54,8 +54,8 @@ def validate_and_maybe_shrink_image(
         size_mb = len(image_bytes) / (1024 * 1024)
         limit_mb = byte_limit / (1024 * 1024)
 
-        if strict_size:
-            error_msg = f"❌ Image '{image_name}' is {size_mb:.1f} MB, which exceeds the {limit_mb:.0f} MB limit. Resize the image or disable 'strict_image_size' to allow auto-shrinking."
+        if not auto_image_resize:
+            error_msg = f"❌ Image '{image_name}' is {size_mb:.1f} MB, which exceeds the {limit_mb:.0f} MB limit. Resize the image or enable 'auto_image_resize' to allow auto-resizing."
             _log(error_msg)
             raise ValueError(error_msg)
 
@@ -98,44 +98,43 @@ def shrink_image_to_limit(
     if not PIL_INSTALLED:
         _log("ℹ️ Pillow not installed; cannot downscale large images. Install 'Pillow' to enable.")
         return image_bytes, mime_type
-
     try:
         img = PILImage.open(_io.BytesIO(image_bytes))
         img = img.convert("RGBA") if img.mode in ("P", "LA") else img
         # Prefer WEBP for better compression and alpha support
         target_format = "WEBP"
-        target_mime = "image/webp"
 
         orig_w, orig_h = img.size
-        scales = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5]
-        qualities = [90, 85, 80, 75, 70, 60, 50]
+
+        # Try lossless first (best quality)
+        buf = _io.BytesIO()
+        img.save(buf, format=target_format, lossless=True, method=6)
+        data = buf.getvalue()
+        image_size_bytes = len(data)
+        _log(f"Downscale attempt: lossless size={image_size_bytes / (1024 * 1024):.2f}MB")
+        if image_size_bytes <= byte_limit:
+            _log(f"Shrunk image to {image_size_bytes / (1024 * 1024):.2f}MB (lossless)")
+            return data, "image/webp"
+
+        # Finer-grained scales for better quality preservation
+        scales = [1.0, 0.75, 0.5]
+        qualities = [100, 95, 85]
 
         for scale in scales:
             w = max(1, int(orig_w * scale))
             h = max(1, int(orig_h * scale))
             resized = img.resize((w, h)) if (w, h) != (orig_w, orig_h) else img
+
             for q in qualities:
                 buf = _io.BytesIO()
-                save_params = {"format": target_format, "quality": q}
-                # lossless false by default; ensure efficient encoding
-                if target_format == "WEBP":
-                    save_params.update({"method": 6})
-                resized.save(buf, **save_params)
+                resized.save(buf, format=target_format, quality=q, method=6)
                 data = buf.getvalue()
-                if len(data) <= byte_limit:
-                    return data, target_mime
-        # As a last resort, try JPEG without alpha
-        rgb = img.convert("RGB")
-        for scale in scales:
-            w = max(1, int(orig_w * scale))
-            h = max(1, int(orig_h * scale))
-            resized = rgb.resize((w, h)) if (w, h) != (orig_w, orig_h) else rgb
-            for q in qualities:
-                buf = _io.BytesIO()
-                resized.save(buf, format="JPEG", quality=q, optimize=True, progressive=True)
-                data = buf.getvalue()
-                if len(data) <= byte_limit:
-                    return data, "image/jpeg"
+                image_size_bytes = len(data)
+                _log(f"Downscale attempt: scale={scale:.2f} quality={q} size={image_size_bytes / (1024 * 1024):.2f}MB")
+                if image_size_bytes <= byte_limit:
+                    _log(f"Shrunk image to {image_size_bytes / (1024 * 1024):.2f}MB (q={q})")
+                    return data, "image/webp"
     except Exception as e:
-        _log(f"⚠️ Downscale failed: {e}")
+        _log(f"Downscale failed: {e}")
+    _log("Returning original image bytes after downscale attempts")
     return image_bytes, mime_type

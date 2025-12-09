@@ -20,7 +20,7 @@
         "author": "Griptape",
         "description": "A Griptape Nodes library for interacting with Google AI services like Veo and Lyria.",
         "url": "www.griptape.ai",
-        "library_version": "0.2.1",
+        "library_version": "0.2.2",
         "engine_version": "0.44.0",
         "tags": [
             "Griptape",
