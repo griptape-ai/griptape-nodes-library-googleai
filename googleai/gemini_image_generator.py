@@ -105,7 +105,7 @@ class GeminiImageGenerator(ControlNode):
             Parameter(
                 name="strict_image_size",
                 type="bool",
-                tooltip="If enabled, fail when input images exceed 7 MB instead of auto-shrinking them.",
+                tooltip=f"If enabled, raises an error when input images exceed the 7MB limit. If disabled, oversized images are best-effort scaled to fit within the 7MB limit.",
                 default_value=False,
                 allowed_modes={ParameterMode.PROPERTY},
             )
