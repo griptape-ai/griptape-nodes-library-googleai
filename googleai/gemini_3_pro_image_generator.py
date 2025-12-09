@@ -155,10 +155,10 @@ class NanoBananaProImageGenerator(ControlNode):
 
         self.add_parameter(
             Parameter(
-                name="disable_auto_image_resize",
+                name="auto_image_resize",
                 type="bool",
-                tooltip="If enabled, raises an error when input images exceed the 7MB limit. If disabled, oversized images are best-effort scaled to fit within the 7MB limit.",
-                default_value=False,
+                tooltip="If disabled, raises an error when input images exceed the 7MB limit. If enabled, oversized images are best-effort scaled to fit within the 7MB limit.",
+                default_value=True,
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
@@ -310,14 +310,14 @@ class NanoBananaProImageGenerator(ControlNode):
         return ImageUrlArtifact(value=static_url, name=f"gemini_3_pro_image_{timestamp}")
 
     def _image_artifact_to_pil_image(
-        self, art: Any, suggested_name: str = None, disable_auto_image_resize: bool = False
+        self, art: Any, suggested_name: str = None, auto_image_resize: bool = False
     ) -> PILImage.Image:
         """Convert ImageArtifact or ImageUrlArtifact to PIL Image.
 
         Args:
             art: ImageArtifact or ImageUrlArtifact
             suggested_name: Optional name hint for the image (for logging/debugging)
-            disable_auto_image_resize: If True, fail when image exceeds 7 MB instead of auto-shrinking
+            auto_image_resize: If True, fail when image exceeds 7 MB instead of auto-shrinking
         """
         if not PIL_INSTALLED:
             raise RuntimeError("Pillow is required to process images. Install 'Pillow' to enable.")
@@ -344,7 +344,7 @@ class NanoBananaProImageGenerator(ControlNode):
             image_name=img_name,
             allowed_mimes=self.ALLOWED_IMAGE_MIME,
             byte_limit=self.MAX_IMAGE_BYTES,
-            strict_size=disable_auto_image_resize,
+            strict_size=auto_image_resize,
             log_func=self._log,
         )
 
@@ -354,12 +354,12 @@ class NanoBananaProImageGenerator(ControlNode):
             pil_img.filename = suggested_name
         return pil_img
 
-    def _process_images(self, input_images: list, disable_auto_image_resize: bool = False) -> list[PILImage.Image]:
+    def _process_images(self, input_images: list, auto_image_resize: bool = False) -> list[PILImage.Image]:
         """Process and validate input images, return PIL Images.
 
         Args:
             input_images: List of ImageArtifact or ImageUrlArtifact
-            disable_auto_image_resize: If True, fail when image exceeds 7 MB instead of auto-shrinking
+            auto_image_resize: If True, fail when image exceeds 7 MB instead of auto-shrinking
 
         Returns:
             List of PIL Images (max 14)
@@ -376,7 +376,7 @@ class NanoBananaProImageGenerator(ControlNode):
             try:
                 suggested_name = f"image{img_idx + 1}"
                 pil_img = self._image_artifact_to_pil_image(
-                    img_art, suggested_name=suggested_name, disable_auto_image_resize=disable_auto_image_resize
+                    img_art, suggested_name=suggested_name, auto_image_resize=auto_image_resize
                 )
                 pil_images.append(pil_img)
             except Exception as e:
@@ -400,11 +400,11 @@ class NanoBananaProImageGenerator(ControlNode):
         use_google_search,
         temperature,
         top_p,
-        disable_auto_image_resize,
+        auto_image_resize,
     ):
         """Generate image using Gemini 3 Pro and process response."""
         # Process input images
-        pil_images = self._process_images(input_images, disable_auto_image_resize=disable_auto_image_resize)
+        pil_images = self._process_images(input_images, auto_image_resize=auto_image_resize)
 
         self._log(f"📸 Processing {len(pil_images)} input image(s)...")
 
@@ -625,7 +625,7 @@ class NanoBananaProImageGenerator(ControlNode):
         top_p = self.get_parameter_value("top_p")
 
         reference_images = self.get_parameter_value("reference_images") or []
-        disable_auto_image_resize = self.get_parameter_value("disable_auto_image_resize")
+        auto_image_resize = self.get_parameter_value("auto_image_resize")
 
         # Backwards compatibility: collect images from deprecated parameters
         object_images = self.get_parameter_value("object_images") or []
@@ -735,7 +735,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 use_google_search=use_google_search,
                 temperature=temperature,
                 top_p=top_p,
-                disable_auto_image_resize=disable_auto_image_resize,
+                auto_image_resize=auto_image_resize,
             )
 
         except ValueError as e:

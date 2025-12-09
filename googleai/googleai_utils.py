@@ -18,7 +18,7 @@ def validate_and_maybe_shrink_image(
     image_name: str,
     allowed_mimes: set[str],
     byte_limit: int,
-    strict_size: bool = False,
+    auto_image_resize: bool = True,
     log_func: Callable[[str], None] | None = None,
 ) -> tuple[bytes, str]:
     """Validate image MIME type and size, optionally shrinking if too large.
@@ -29,7 +29,7 @@ def validate_and_maybe_shrink_image(
         image_name: Name/identifier for error messages
         allowed_mimes: Set of allowed MIME types
         byte_limit: Maximum allowed size in bytes
-        strict_size: If True, fail when image exceeds limit instead of shrinking
+        auto_image_resize: If False, fail when image exceeds limit instead of shrinking
         log_func: Optional logging function
 
     Returns:
@@ -54,8 +54,8 @@ def validate_and_maybe_shrink_image(
         size_mb = len(image_bytes) / (1024 * 1024)
         limit_mb = byte_limit / (1024 * 1024)
 
-        if strict_size:
-            error_msg = f"❌ Image '{image_name}' is {size_mb:.1f} MB, which exceeds the {limit_mb:.0f} MB limit. Resize the image or disable 'disable_auto_image_resize' to allow auto-shrinking."
+        if not auto_image_resize:
+            error_msg = f"❌ Image '{image_name}' is {size_mb:.1f} MB, which exceeds the {limit_mb:.0f} MB limit. Resize the image or enable 'auto_image_resize' to allow auto-resizing."
             _log(error_msg)
             raise ValueError(error_msg)
 
