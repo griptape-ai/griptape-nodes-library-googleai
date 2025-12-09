@@ -313,7 +313,7 @@ class GeminiImageGenerator(ControlNode):
                     image_name=img_name,
                     allowed_mimes=self.ALLOWED_IMAGE_MIME,
                     byte_limit=self.MAX_IMAGE_BYTES,
-                    strict_size=auto_image_resize,
+                    auto_image_resize=auto_image_resize,
                     log_func=self._log,
                 )
                 # REST API format: inlineData with base64 (Vertex v1)

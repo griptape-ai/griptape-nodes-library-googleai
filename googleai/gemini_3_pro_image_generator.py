@@ -310,14 +310,14 @@ class NanoBananaProImageGenerator(ControlNode):
         return ImageUrlArtifact(value=static_url, name=f"gemini_3_pro_image_{timestamp}")
 
     def _image_artifact_to_pil_image(
-        self, art: Any, suggested_name: str = None, auto_image_resize: bool = False
+        self, art: Any, suggested_name: str = None, auto_image_resize: bool = True
     ) -> PILImage.Image:
         """Convert ImageArtifact or ImageUrlArtifact to PIL Image.
 
         Args:
             art: ImageArtifact or ImageUrlArtifact
             suggested_name: Optional name hint for the image (for logging/debugging)
-            auto_image_resize: If True, fail when image exceeds 7 MB instead of auto-shrinking
+            auto_image_resize: If False, fail when image exceeds 7 MB instead of auto-shrinking
         """
         if not PIL_INSTALLED:
             raise RuntimeError("Pillow is required to process images. Install 'Pillow' to enable.")
@@ -344,7 +344,7 @@ class NanoBananaProImageGenerator(ControlNode):
             image_name=img_name,
             allowed_mimes=self.ALLOWED_IMAGE_MIME,
             byte_limit=self.MAX_IMAGE_BYTES,
-            strict_size=auto_image_resize,
+            auto_image_resize=auto_image_resize,
             log_func=self._log,
         )
 
@@ -354,12 +354,12 @@ class NanoBananaProImageGenerator(ControlNode):
             pil_img.filename = suggested_name
         return pil_img
 
-    def _process_images(self, input_images: list, auto_image_resize: bool = False) -> list[PILImage.Image]:
+    def _process_images(self, input_images: list, auto_image_resize: bool = True) -> list[PILImage.Image]:
         """Process and validate input images, return PIL Images.
 
         Args:
             input_images: List of ImageArtifact or ImageUrlArtifact
-            auto_image_resize: If True, fail when image exceeds 7 MB instead of auto-shrinking
+            auto_image_resize: If False, fail when image exceeds 7 MB instead of auto-shrinking
 
         Returns:
             List of PIL Images (max 14)
