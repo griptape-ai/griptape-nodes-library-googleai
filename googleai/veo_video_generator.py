@@ -29,6 +29,7 @@ except ImportError:
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
 MODELS = [
+    "veo-3.1-generate-preview",
     "veo-3.1-fast-generate-preview",
     "veo-3.0-generate-001",
     "veo-3.0-fast-generate-001",
@@ -39,6 +40,11 @@ MODELS = [
 # Model capabilities configuration
 # Maps model names to their supported features
 MODEL_CAPABILITIES = {
+    "veo-3.1-generate-preview": {
+        "duration_choices": [8],
+        "duration_default": 8,
+        "version": "veo3",
+    },
     "veo-3.1-fast-generate-preview": {
         "duration_choices": [4, 6, 8],
         "duration_default": 8,
