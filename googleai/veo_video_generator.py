@@ -1,6 +1,4 @@
-import json
 import logging
-import os
 import time
 from typing import Any, ClassVar
 
@@ -481,10 +479,6 @@ class VeoVideoGenerator(ControlNode):
                 log_func=self._log
             )
 
-            # Clear environment variable to avoid conflicts when using explicit credentials
-            if credentials:
-                os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
-
             self._log(f"Project ID: {final_project_id}")
             self._log("Initializing Vertex AI...")
             aiplatform.init(project=final_project_id, location=location, credentials=credentials)
@@ -533,7 +527,8 @@ class VeoVideoGenerator(ControlNode):
         except ValueError as e:
             self._log(f"❌ CONFIGURATION ERROR: {e}")
             self._log("💡 Please set up Google Cloud credentials in the library settings:")
-            self._log("   - GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
+            self._log("   - GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH (recommended, path to workload identity config)")
+            self._log("   - OR GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
             self._log("   - OR GOOGLE_CLOUD_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON")
         except Exception as e:
             self._log(f"❌ An unexpected error occurred: {e}")

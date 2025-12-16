@@ -1,7 +1,6 @@
 import base64
 import json
 import logging
-import os
 import urllib.parse
 from pathlib import Path
 
@@ -464,10 +463,6 @@ class BaseAnalyzeMedia(ControlNode):
                 GriptapeNodes.SecretsManager(),
                 log_func=self._log
             )
-
-            # Clear environment variable to avoid conflicts when using explicit credentials
-            if credentials:
-                os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
 
             self._log(f"Project ID: {final_project_id}")
             self._log("Initializing Vertex AI...")
