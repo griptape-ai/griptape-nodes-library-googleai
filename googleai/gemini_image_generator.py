@@ -1,7 +1,4 @@
-import base64
-import json
 import logging
-import os
 import time
 from typing import Any
 
@@ -19,18 +16,20 @@ from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 try:
-    from google.auth.transport.requests import Request
-
-    GOOGLE_AUTH_INSTALLED = True
-except ImportError:
-    GOOGLE_AUTH_INSTALLED = False
-
-try:
     import requests
 
     REQUESTS_INSTALLED = True
 except Exception:
     REQUESTS_INSTALLED = False
+
+try:
+    from google import genai
+    from google.cloud import aiplatform
+    from google.genai import types
+
+    GOOGLE_INSTALLED = True
+except ImportError:
+    GOOGLE_INSTALLED = False
 
 from googleai_utils import GoogleAuthHelper, validate_and_maybe_shrink_image
 
@@ -262,9 +261,7 @@ class GeminiImageGenerator(ControlNode):
     # ---------- Core generation ----------
     def _generate_and_process(
         self,
-        credentials,
-        project_id,
-        location,
+        client,
         model,
         prompt,
         input_images,
@@ -275,11 +272,11 @@ class GeminiImageGenerator(ControlNode):
         aspect_ratio,
         auto_image_resize,
     ):
-        # Build parts list for REST API
-        parts: list[dict] = []
+        # Build contents list for SDK
+        contents: list = []
 
         if prompt:
-            parts.append({"text": prompt})
+            contents.append(prompt)
 
         # Images (max 3, ≤ 7 MB each, allowed mimes)
         images = input_images or []
@@ -302,8 +299,8 @@ class GeminiImageGenerator(ControlNode):
                     auto_image_resize=auto_image_resize,
                     log_func=self._log,
                 )
-                # REST API format: inlineData with base64 (Vertex v1)
-                parts.append({"inlineData": {"mimeType": mime, "data": base64.b64encode(b).decode("utf-8")}})
+                # SDK format: types.Part with inline_data
+                contents.append(types.Part.from_bytes(data=b, mime_type=mime))
                 kept += 1
             except Exception as e:
                 self._log(f"⚠️ Skipping image due to error: {e}")
@@ -330,31 +327,18 @@ class GeminiImageGenerator(ControlNode):
                     error_msg = f"❌ Document '{doc_name}' size {size_mb:.1f} MB exceeds maximum allowed size of 50 MB"
                     self._log(error_msg)
                     raise ValueError(error_msg)
-                # REST API format: inlineData with base64 (Vertex v1)
-                parts.append({"inlineData": {"mimeType": mime, "data": base64.b64encode(b).decode("utf-8")}})
+                # SDK format: types.Part with inline_data
+                contents.append(types.Part.from_bytes(data=b, mime_type=mime))
                 kept += 1
             except Exception as e:
                 self._log(f"⚠️ Skipping file due to error: {e}")
 
-        # Build REST API request
+        # Validate candidate count
         original_candidates = int(candidate_count or 1)
         eff_candidates = max(1, min(original_candidates, 8))
 
         if original_candidates != eff_candidates:
             self._log(f"⚠️ Candidate count adjusted from {original_candidates} to {eff_candidates} (valid range: 1-8)")
-
-
-        # Build REST API payload
-        payload = {
-            "contents": [{"role": "USER", "parts": parts}],
-            "generation_config": {
-                "temperature": float(temperature),
-                "topP": float(top_p),
-                "candidateCount": eff_candidates,
-                "response_modalities": ["TEXT", "IMAGE"],
-                "image_config": {"aspect_ratio": aspect_ratio},
-            },
-        }
 
         self._log("🎛️ Generation parameters:")
         self._log(f"  • Temperature: {temperature}")
@@ -362,63 +346,43 @@ class GeminiImageGenerator(ControlNode):
         self._log(f"  • Candidate count: {eff_candidates}")
         self._log(f"  • Aspect ratio: {aspect_ratio}")
 
-        # Debug payload (redacted to avoid logging raw base64)
-        try:
-            contents_preview = []
-            for msg in payload.get("contents", []):
-                preview_parts = []
-                for part in msg.get("parts", []):
-                    if "inlineData" in part:
-                        inline = part.get("inlineData", {})
-                        data_str = inline.get("data", "")
-                        preview_parts.append(
-                            {"inlineData": {"mimeType": inline.get("mimeType"), "data": f"[{len(data_str)} chars]"}}
-                        )
-                    elif "text" in part:
-                        text_val = part.get("text", "")
-                        preview_parts.append({"text": (text_val[:200] + ("..." if len(text_val) > 200 else ""))})
-                contents_preview.append({"role": msg.get("role"), "parts": preview_parts})
-            payload_preview = {"contents": contents_preview, "generation_config": payload.get("generation_config")}
-            self._log("📦 Payload preview:\n" + json.dumps(payload_preview, indent=2))
-        except Exception as e:
-            self._log(f"⚠️ Failed to build payload preview: {e}")
-
-        # Make REST API call
-        access_token = GoogleAuthHelper.get_access_token(credentials)
-        api_endpoint = f"https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/google/models/{model}:generateContent"
-
-        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        # Build generation config
+        config = types.GenerateContentConfig(
+            temperature=float(temperature),
+            top_p=float(top_p),
+            candidate_count=eff_candidates,
+            response_modalities=["TEXT", "IMAGE"],
+        )
 
         self._log("🧠 Calling Gemini generateContent API...")
-        if not REQUESTS_INSTALLED:
-            raise RuntimeError("`requests` library is required for REST API calls.")
 
-        response = requests.post(api_endpoint, headers=headers, json=payload, timeout=120)
-        response.raise_for_status()
-        response_data = response.json()
+        # Call the SDK
+        response = client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=config,
+        )
+
         self._log("✅ Generation complete.")
 
-        # Parse outputs from REST API JSON response
+        # Parse outputs from SDK response
         all_images = []
-        candidates = response_data.get("candidates", [])
-        for cand in candidates:
-            content = cand.get("content", {})
-            parts_list = content.get("parts", [])
-            for part in parts_list:
-                # Text logs
-                if "text" in part:
-                    self._log(part["text"])
+        if response.candidates:
+            for cand in response.candidates:
+                if cand.content and cand.content.parts:
+                    for part in cand.content.parts:
+                        # Text logs
+                        if part.text:
+                            self._log(part.text)
 
-                # Inline images
-                if "inlineData" in part or "inline_data" in part:
-                    inline_data = part.get("inlineData") or part.get("inline_data", {})
-                    mime = inline_data.get("mimeType") or inline_data.get("mime_type", "image/png")
-                    data_b64 = inline_data.get("data", "")
-                    if mime.startswith("image/") and data_b64:
-                        # Decode base64
-                        data = base64.b64decode(data_b64)
-                        art = self._create_image_artifact(data, mime)
-                        all_images.append(art)
+                        # Inline images - SDK returns inline_data as an object
+                        if hasattr(part, "inline_data") and part.inline_data:
+                            inline_data = part.inline_data
+                            mime = getattr(inline_data, "mime_type", "image/png")
+                            data = getattr(inline_data, "data", None)
+                            if mime.startswith("image/") and data:
+                                art = self._create_image_artifact(data, mime)
+                                all_images.append(art)
 
         # Save all images to outputs
         if all_images:
@@ -445,8 +409,8 @@ class GeminiImageGenerator(ControlNode):
     def _process(self):
         # Clear outputs at the start of each run
         self._reset_outputs()
-        if not GOOGLE_AUTH_INSTALLED:
-            self._log("ERROR: Missing Google auth libraries. Install `google-auth`.")
+        if not GOOGLE_INSTALLED:
+            self._log("ERROR: Missing Google libraries. Install `google-genai`, `google-cloud-aiplatform`.")
             return
 
         # Inputs
@@ -479,11 +443,16 @@ class GeminiImageGenerator(ControlNode):
                 log_func=self._log
             )
 
+            self._log(f"Project ID: {project_id}")
+            self._log("Initializing Vertex AI...")
+            aiplatform.init(project=project_id, location=location, credentials=credentials)
+
+            self._log("Initializing Generative AI Client (Vertex AI)...")
+            client = genai.Client(vertexai=True, project=project_id, location=location)
+
             self._log("🚀 Starting Gemini image generation...")
             self._generate_and_process(
-                credentials=credentials,
-                project_id=project_id,
-                location=location,
+                client=client,
                 model=model,
                 prompt=prompt,
                 input_images=input_images,
@@ -495,6 +464,12 @@ class GeminiImageGenerator(ControlNode):
                 auto_image_resize=auto_image_resize,
             )
 
+        except ValueError as e:
+            self._log(f"❌ CONFIGURATION ERROR: {e}")
+            self._log("💡 Please set up Google Cloud credentials in the library settings:")
+            self._log("   - GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH (recommended, path to workload identity config)")
+            self._log("   - OR GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
+            self._log("   - OR GOOGLE_CLOUD_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON")
         except Exception as e:
             self._log(f"❌ Error: {e}")
             import traceback
