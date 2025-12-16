@@ -14,7 +14,7 @@ except Exception:
     PIL_INSTALLED = False
 
 try:
-    from google.auth import external_account
+    import google.auth
     from google.auth.transport.requests import Request
     from google.oauth2 import service_account
 
@@ -88,7 +88,9 @@ class GoogleAuthHelper:
         if workload_identity_config and os.path.exists(workload_identity_config):
             _log("🔑 Using workload identity federation for authentication.")
             try:
-                credentials = external_account.Credentials.from_file(
+                # Use google.auth.load_credentials_from_file which auto-detects the
+                # credential type (identity_pool, aws, pluggable) based on the config file
+                credentials, _ = google.auth.load_credentials_from_file(
                     workload_identity_config,
                     scopes=["https://www.googleapis.com/auth/cloud-platform"]
                 )
