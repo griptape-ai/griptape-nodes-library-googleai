@@ -37,10 +37,11 @@ class GoogleAuthHelper:
        Requires: GOOGLE_APPLICATION_CREDENTIALS_JSON
 
     4. Application Default Credentials (ADC) - Auto-detected from environment
-       Requires: GOOGLE_CLOUD_PROJECT_ID only
+       Requires: GOOGLE_CLOUD_PROJECT_ID
        Works with:
        - Cloud Run, GKE, GCE (metadata server)
        - Local development (gcloud auth application-default login)
+       - GOOGLE_APPLICATION_CREDENTIALS environment variable
        - Any environment with configured ADC
     """
 
@@ -177,9 +178,15 @@ class GoogleAuthHelper:
         # Works in production (Cloud Run, GKE, GCE) and local dev (gcloud auth)
         if project_id:
             _log("🔑 Using Application Default Credentials (Cloud Run/GKE/GCE metadata server or gcloud auth).")
-            final_project_id = project_id
-            # Return None for credentials to let the client libraries use ADC
-            return None, final_project_id
+            try:
+                credentials, _ = google.auth.default(
+                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
+                _log(f"✅ ADC authentication successful for project: {project_id}")
+                return credentials, project_id
+            except Exception as e:
+                _log(f"❌ ADC authentication failed: {e}")
+                raise
 
         # No valid auth method found
         raise ValueError(

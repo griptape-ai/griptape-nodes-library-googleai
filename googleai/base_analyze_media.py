@@ -389,26 +389,15 @@ class BaseAnalyzeMedia(ControlNode):
         for i, media_source in enumerate(all_media_sources):
             self._log(f"📁 Adding media item {i + 1}: {media_source['type']}")
 
-            if media_source["type"] == "url":
-                # Public URL - use directly with MIME type
-                contents.append(
-                    {
-                        "file_data": {
-                            "file_uri": media_source["value"],
-                            "mime_type": media_source.get("mime_type", "application/octet-stream"),
-                        }
+            # Always include mime_type - the API requires it
+            contents.append(
+                {
+                    "file_data": {
+                        "file_uri": media_source["value"],
+                        "mime_type": media_source.get("mime_type", "application/octet-stream"),
                     }
-                )
-            else:  # GCS URI
-                # GCS URI - use directly with MIME type
-                contents.append(
-                    {
-                        "file_data": {
-                            "file_uri": media_source["value"],
-                            "mime_type": media_source.get("mime_type", "application/octet-stream"),
-                        }
-                    }
-                )
+                }
+            )
 
         # Generate content with all media
         try:
