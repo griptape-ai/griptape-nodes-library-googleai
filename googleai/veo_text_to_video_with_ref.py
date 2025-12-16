@@ -24,7 +24,7 @@ try:
 except ImportError:
     GOOGLE_INSTALLED = False
 
-from googleai_utils import GoogleAuthHelper
+from googleai_utils import GoogleAuthHelper, detect_image_mime_from_bytes
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -389,10 +389,15 @@ class VeoTextToVideoWithRef(ControlNode):
             response.raise_for_status()
             image_data = response.content
 
-            # Determine mime type from URL or response headers
-            content_type = response.headers.get("content-type", "image/jpeg")
-            if "png" in content_type.lower():
+            # Determine mime type from response headers
+            content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+            # If MIME type is missing or generic, detect from bytes
+            if not content_type or content_type == "application/octet-stream":
+                mime_type = detect_image_mime_from_bytes(image_data) or "image/png"
+            elif "png" in content_type:
                 mime_type = "image/png"
+            elif "webp" in content_type:
+                mime_type = "image/webp"
             else:
                 mime_type = "image/jpeg"
 
@@ -408,7 +413,8 @@ class VeoTextToVideoWithRef(ControlNode):
                 # Try to get the raw value
                 image_data = image_artifact.value
 
-            mime_type = "image/png"  # Default for ImageArtifact
+            # Detect mime type from bytes
+            mime_type = detect_image_mime_from_bytes(image_data) or "image/png"
         else:
             raise ValueError(f"Unsupported image artifact type: {type(image_artifact)}")
 

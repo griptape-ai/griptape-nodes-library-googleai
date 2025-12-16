@@ -4,6 +4,26 @@ import json
 import os
 from typing import Any, Callable
 
+
+def detect_image_mime_from_bytes(data: bytes) -> str | None:
+    """Detect image MIME type from magic bytes.
+
+    Returns the detected MIME type or None if not recognized.
+    """
+    if len(data) < 12:
+        return None
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return "image/png"
+    if data[:2] == b'\xff\xd8':
+        return "image/jpeg"
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return "image/webp"
+    if data[4:12] in (b'ftypheic', b'ftypheix', b'ftypmif1'):
+        return "image/heic"
+    if data[4:12] in (b'ftypheif', b'ftypmif1'):
+        return "image/heif"
+    return None
+
 try:
     import io as _io
 

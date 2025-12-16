@@ -31,7 +31,7 @@ try:
 except ImportError:
     GOOGLE_INSTALLED = False
 
-from googleai_utils import GoogleAuthHelper, validate_and_maybe_shrink_image
+from googleai_utils import GoogleAuthHelper, detect_image_mime_from_bytes, validate_and_maybe_shrink_image
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -232,14 +232,30 @@ class GeminiImageGenerator(ControlNode):
             raise RuntimeError("`requests` is required to fetch ImageUrlArtifact URLs.")
         resp = requests.get(url, timeout=30)
         resp.raise_for_status()
+        data = resp.content
         mime = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
-        return resp.content, mime
+
+        # If MIME type is missing or generic, detect from bytes
+        if not mime or mime == "application/octet-stream":
+            detected = detect_image_mime_from_bytes(data)
+            if detected:
+                mime = detected
+
+        return data, mime
 
     def _image_artifact_to_bytes_mime(self, art: Any) -> tuple[bytes, str]:
         if isinstance(art, ImageArtifact):
             # ImageArtifact.value is expected to be raw bytes; may have mime_type attr
-            mime = getattr(art, "mime_type", None) or "image/png"
-            return art.value, mime
+            data = art.value
+            mime = getattr(art, "mime_type", None)
+            # If MIME type is missing or generic, detect from bytes
+            if not mime or mime == "application/octet-stream":
+                detected = detect_image_mime_from_bytes(data)
+                if detected:
+                    mime = detected
+                else:
+                    mime = "image/png"  # Default fallback
+            return data, mime
         if isinstance(art, ImageUrlArtifact):
             return self._fetch_image_url_bytes(art.value)
         raise TypeError("Unsupported image artifact type.")

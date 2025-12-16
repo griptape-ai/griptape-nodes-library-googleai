@@ -26,7 +26,7 @@ try:
 except Exception:
     REQUESTS_INSTALLED = False
 
-from googleai_utils import validate_and_maybe_shrink_image
+from googleai_utils import detect_image_mime_from_bytes, validate_and_maybe_shrink_image
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -315,14 +315,20 @@ class NanoBananaProImageGenerator(ControlNode):
         # Get raw bytes and mime type from artifact
         if isinstance(art, ImageArtifact):
             image_bytes = art.value
-            mime = getattr(art, "mime_type", None) or "image/png"
+            mime = getattr(art, "mime_type", None)
+            # If MIME type is missing or generic, detect from bytes
+            if not mime or mime == "application/octet-stream":
+                mime = detect_image_mime_from_bytes(image_bytes) or "image/png"
         elif isinstance(art, ImageUrlArtifact):
             if not REQUESTS_INSTALLED:
                 raise RuntimeError("`requests` is required to fetch ImageUrlArtifact URLs.")
             resp = requests.get(art.value, timeout=30)
             resp.raise_for_status()
             image_bytes = resp.content
-            mime = resp.headers.get("Content-Type", "").split(";")[0].strip().lower() or "image/png"
+            mime = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
+            # If MIME type is missing or generic, detect from bytes
+            if not mime or mime == "application/octet-stream":
+                mime = detect_image_mime_from_bytes(image_bytes) or "image/png"
         else:
             raise TypeError(f"Unsupported image artifact type: {type(art)}")
 
