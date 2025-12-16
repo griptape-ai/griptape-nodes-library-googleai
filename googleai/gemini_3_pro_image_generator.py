@@ -1,7 +1,4 @@
-import json
 import logging
-import os
-import tempfile
 import time
 from typing import Any
 
@@ -29,7 +26,7 @@ try:
 except Exception:
     REQUESTS_INSTALLED = False
 
-from googleai_utils import validate_and_maybe_shrink_image
+from googleai_utils import detect_image_mime_from_bytes, validate_and_maybe_shrink_image
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -37,7 +34,6 @@ try:
     from google import genai
     from google.cloud import aiplatform
     from google.genai import types
-    from google.oauth2 import service_account
 
     GOOGLE_GENAI_VERSION = getattr(genai, "__version__", "unknown")
 
@@ -57,6 +53,8 @@ except ImportError as e:
     IMAGE_CONFIG_AVAILABLE = False
     GOOGLE_GENAI_VERSION = "not installed"
 
+from googleai_utils import GoogleAuthHelper
+
 
 VERTEX_AI = "Vertex AI"
 AI_STUDIO_API = "AI Studio API"
@@ -74,9 +72,6 @@ class NanoBananaProImageGenerator(ControlNode):
     """
 
     SERVICE = "GoogleAI"
-    SERVICE_ACCOUNT_FILE_PATH = "GOOGLE_SERVICE_ACCOUNT_FILE_PATH"
-    PROJECT_ID = "GOOGLE_CLOUD_PROJECT_ID"
-    CREDENTIALS_JSON = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
     API_KEY = "GOOGLE_API_KEY"  # For Google AI Studio API
 
     # Model constraints: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-pro-image
@@ -289,11 +284,6 @@ class NanoBananaProImageGenerator(ControlNode):
         except Exception:
             pass
 
-    def _get_project_id(self, service_account_file: str) -> str:
-        if not os.path.exists(service_account_file):
-            raise FileNotFoundError(f"Service account file not found: {service_account_file}")
-        with open(service_account_file) as f:
-            return json.load(f).get("project_id")
 
     def _create_image_artifact(self, image_bytes: bytes, mime_type: str) -> ImageUrlArtifact:
         import hashlib
@@ -325,14 +315,20 @@ class NanoBananaProImageGenerator(ControlNode):
         # Get raw bytes and mime type from artifact
         if isinstance(art, ImageArtifact):
             image_bytes = art.value
-            mime = getattr(art, "mime_type", None) or "image/png"
+            mime = getattr(art, "mime_type", None)
+            # If MIME type is missing or generic, detect from bytes
+            if not mime or mime == "application/octet-stream":
+                mime = detect_image_mime_from_bytes(image_bytes) or "image/png"
         elif isinstance(art, ImageUrlArtifact):
             if not REQUESTS_INSTALLED:
                 raise RuntimeError("`requests` is required to fetch ImageUrlArtifact URLs.")
             resp = requests.get(art.value, timeout=30)
             resp.raise_for_status()
             image_bytes = resp.content
-            mime = resp.headers.get("Content-Type", "").split(";")[0].strip().lower() or "image/png"
+            mime = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
+            # If MIME type is missing or generic, detect from bytes
+            if not mime or mime == "application/octet-stream":
+                mime = detect_image_mime_from_bytes(image_bytes) or "image/png"
         else:
             raise TypeError(f"Unsupported image artifact type: {type(art)}")
 
@@ -668,54 +664,12 @@ class NanoBananaProImageGenerator(ControlNode):
             else:  # Vertex AI
                 # Use Vertex AI authentication
                 self._log("🔑 Using Vertex AI authentication.")
-                service_account_file = GriptapeNodes.SecretsManager().get_secret(f"{self.SERVICE_ACCOUNT_FILE_PATH}")
-                project_id = None
-                credentials = None
 
-                if service_account_file and os.path.exists(service_account_file):
-                    self._log("🔑 Using service account file for authentication.")
-                    try:
-                        # Set environment variable so genai.Client can find credentials
-                        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_file
-                        project_id = self._get_project_id(service_account_file)
-                        credentials = service_account.Credentials.from_service_account_file(
-                            service_account_file, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-                        )
-                        self._log(f"✅ Service account authentication successful for project: {project_id}")
-                    except Exception as e:
-                        self._log(f"❌ Service account file authentication failed: {e}")
-                        raise
-                else:
-                    # Fall back to individual credentials from settings
-                    self._log("🔑 Service account file not found, using individual credentials from settings.")
-                    project_id = GriptapeNodes.SecretsManager().get_secret(f"{self.PROJECT_ID}")
-                    credentials_json = GriptapeNodes.SecretsManager().get_secret(f"{self.CREDENTIALS_JSON}")
-
-                    if not project_id:
-                        raise ValueError(
-                            "❌ GOOGLE_CLOUD_PROJECT_ID must be set in library settings when not using a service account file or API key."
-                        )
-
-                    if credentials_json:
-                        try:
-                            cred_dict = json.loads(credentials_json)
-                            credentials = service_account.Credentials.from_service_account_info(
-                                cred_dict, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-                            )
-                            # For JSON credentials, write to temp file so genai.Client can use it
-                            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-                                json.dump(cred_dict, f)
-                                temp_cred_file = f.name
-                            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = temp_cred_file
-                            self._log("✅ JSON credentials authentication successful.")
-                        except Exception as e:
-                            self._log(f"❌ JSON credentials authentication failed: {e}")
-                            raise
-                    else:
-                        self._log("🔑 Using Application Default Credentials (e.g., gcloud auth).")
-
-                if not project_id:
-                    raise ValueError("Could not determine project ID from credentials.")
+                # Use GoogleAuthHelper for authentication
+                credentials, project_id = GoogleAuthHelper.get_credentials_and_project(
+                    GriptapeNodes.SecretsManager(),
+                    log_func=self._log
+                )
 
                 self._log(f"Project ID: {project_id}")
                 self._log("Initializing Vertex AI...")
@@ -742,8 +696,10 @@ class NanoBananaProImageGenerator(ControlNode):
             self._log(f"❌ CONFIGURATION ERROR: {e}")
             self._log("💡 Please set up credentials in the library settings:")
             self._log("   For AI Studio API: GOOGLE_API_KEY (get from https://aistudio.google.com/apikey)")
-            self._log("   For Vertex AI: GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
-            self._log("   OR GOOGLE_CLOUD_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON")
+            self._log("   For Vertex AI:")
+            self._log("     - GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH (recommended, path to workload identity config)")
+            self._log("     - OR GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
+            self._log("     - OR GOOGLE_CLOUD_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON")
         except Exception as e:
             self._log(f"❌ Error: {e}")
             import traceback

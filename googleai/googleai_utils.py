@@ -1,6 +1,28 @@
 """Common utilities for GoogleAI nodes."""
 
-from typing import Callable
+import json
+import os
+from typing import Any, Callable
+
+
+def detect_image_mime_from_bytes(data: bytes) -> str | None:
+    """Detect image MIME type from magic bytes.
+
+    Returns the detected MIME type or None if not recognized.
+    """
+    if len(data) < 12:
+        return None
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return "image/png"
+    if data[:2] == b'\xff\xd8':
+        return "image/jpeg"
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return "image/webp"
+    if data[4:12] in (b'ftypheic', b'ftypheix', b'ftypmif1'):
+        return "image/heic"
+    if data[4:12] in (b'ftypheif', b'ftypmif1'):
+        return "image/heif"
+    return None
 
 try:
     import io as _io
@@ -10,6 +32,202 @@ try:
     PIL_INSTALLED = True
 except Exception:
     PIL_INSTALLED = False
+
+try:
+    import google.auth
+    from google.auth.transport.requests import Request
+    from google.oauth2 import service_account
+
+    GOOGLE_AUTH_INSTALLED = True
+except ImportError:
+    GOOGLE_AUTH_INSTALLED = False
+
+
+class GoogleAuthHelper:
+    """Helper class for Google Cloud authentication with support for multiple auth methods.
+
+    Supports (in priority order):
+    1. Workload Identity Federation - Cross-cloud environments (AWS, GitHub Actions, Azure)
+       Requires: GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH
+
+    2. Service Account File - Explicit key file authentication
+       Requires: GOOGLE_SERVICE_ACCOUNT_FILE_PATH
+
+    3. Service Account JSON - Inline JSON credentials
+       Requires: GOOGLE_APPLICATION_CREDENTIALS_JSON
+
+    4. Application Default Credentials (ADC) - Auto-detected from environment
+       Requires: GOOGLE_CLOUD_PROJECT_ID
+       Works with:
+       - Cloud Run, GKE, GCE (metadata server)
+       - Local development (gcloud auth application-default login)
+       - GOOGLE_APPLICATION_CREDENTIALS environment variable
+       - Any environment with configured ADC
+    """
+
+    # Service constants for configuration
+    SERVICE = "GoogleAI"
+    SERVICE_ACCOUNT_FILE_PATH = "GOOGLE_SERVICE_ACCOUNT_FILE_PATH"
+    PROJECT_ID = "GOOGLE_CLOUD_PROJECT_ID"
+    CREDENTIALS_JSON = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
+    WORKLOAD_IDENTITY_CONFIG_PATH = "GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH"
+
+    @staticmethod
+    def get_credentials_and_project(
+        secrets_manager: Any,
+        log_func: Callable[[str], None] | None = None
+    ) -> tuple[Any, str]:
+        """Get Google Cloud credentials and project ID.
+
+        Args:
+            secrets_manager: GriptapeNodes.SecretsManager() instance
+            log_func: Optional logging function
+
+        Returns:
+            Tuple of (credentials, project_id)
+
+        Raises:
+            ValueError: If no valid credentials are found or project ID cannot be determined
+        """
+        if not GOOGLE_AUTH_INSTALLED:
+            raise ImportError("Google auth libraries not installed. Install 'google-auth'.")
+
+        def _log(msg: str):
+            if log_func:
+                log_func(msg)
+
+        # Get all auth-related secrets
+        workload_identity_config = secrets_manager.get_secret(GoogleAuthHelper.WORKLOAD_IDENTITY_CONFIG_PATH)
+        service_account_file = secrets_manager.get_secret(GoogleAuthHelper.SERVICE_ACCOUNT_FILE_PATH)
+        project_id = secrets_manager.get_secret(GoogleAuthHelper.PROJECT_ID)
+        credentials_json = secrets_manager.get_secret(GoogleAuthHelper.CREDENTIALS_JSON)
+
+        credentials = None
+        final_project_id = None
+
+        # Option 1: Workload Identity Federation
+        if workload_identity_config and os.path.exists(workload_identity_config):
+            _log("🔑 Using workload identity federation for authentication.")
+            try:
+                # Use google.auth.load_credentials_from_file which auto-detects the
+                # credential type (identity_pool, aws, pluggable) based on the config file
+                credentials, _ = google.auth.load_credentials_from_file(
+                    workload_identity_config,
+                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
+
+                # Try to extract project_id from config
+                try:
+                    with open(workload_identity_config) as f:
+                        config = json.load(f)
+                        # Try to extract from service account impersonation email
+                        if "service_account_impersonation" in config:
+                            sa_email = config["service_account_impersonation"].get("service_account_email", "")
+                            if "@" in sa_email:
+                                parts = sa_email.split("@")[1].split(".")
+                                if parts:
+                                    final_project_id = parts[0]
+                except Exception:
+                    pass
+
+                # Fall back to environment/secret for project_id
+                if not final_project_id:
+                    final_project_id = project_id
+
+                if not final_project_id:
+                    raise ValueError(
+                        "Could not determine project ID from workload identity config. "
+                        "Set GOOGLE_CLOUD_PROJECT_ID."
+                    )
+
+                _log(f"✅ Workload identity federation authentication successful for project: {final_project_id}")
+                return credentials, final_project_id
+
+            except Exception as e:
+                _log(f"❌ Workload identity federation authentication failed: {e}")
+                raise
+
+        # Option 2: Service Account File
+        if service_account_file and os.path.exists(service_account_file):
+            _log("🔑 Using service account file for authentication.")
+            try:
+                with open(service_account_file) as f:
+                    sa_data = json.load(f)
+                    final_project_id = sa_data.get("project_id")
+
+                credentials = service_account.Credentials.from_service_account_file(
+                    service_account_file,
+                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
+
+                if not final_project_id:
+                    raise ValueError("Service account file does not contain 'project_id'.")
+
+                _log(f"✅ Service account file authentication successful for project: {final_project_id}")
+                return credentials, final_project_id
+
+            except Exception as e:
+                _log(f"❌ Service account file authentication failed: {e}")
+                raise
+
+        # Option 3: Service Account JSON string
+        if credentials_json:
+            _log("🔑 Using JSON credentials for authentication.")
+            try:
+                cred_dict = json.loads(credentials_json)
+                credentials = service_account.Credentials.from_service_account_info(
+                    cred_dict,
+                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
+                final_project_id = cred_dict.get("project_id") or project_id
+
+                if not final_project_id:
+                    raise ValueError(
+                        "Could not determine project ID. Provide GOOGLE_CLOUD_PROJECT_ID or "
+                        "include 'project_id' in GOOGLE_APPLICATION_CREDENTIALS_JSON."
+                    )
+
+                _log(f"✅ JSON credentials authentication successful for project: {final_project_id}")
+                return credentials, final_project_id
+
+            except Exception as e:
+                _log(f"❌ JSON credentials authentication failed: {e}")
+                raise
+
+        # Option 4: Application Default Credentials (ADC)
+        # Works in production (Cloud Run, GKE, GCE) and local dev (gcloud auth)
+        if project_id:
+            _log("🔑 Using Application Default Credentials (Cloud Run/GKE/GCE metadata server or gcloud auth).")
+            final_project_id = project_id
+            # Return None for credentials to let the client libraries use ADC
+            return None, final_project_id
+
+        # No valid auth method found
+        raise ValueError(
+            "No credentials provided. Configure one of: "
+            "GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH, "
+            "GOOGLE_SERVICE_ACCOUNT_FILE_PATH, "
+            "GOOGLE_APPLICATION_CREDENTIALS_JSON, or "
+            "GOOGLE_CLOUD_PROJECT_ID (for ADC)."
+        )
+
+    @staticmethod
+    def get_access_token(credentials: Any) -> str:
+        """Get access token from credentials.
+
+        Args:
+            credentials: Google credentials object
+
+        Returns:
+            Access token string
+        """
+        if not credentials:
+            raise ValueError("No credentials provided")
+
+        if not credentials.valid:
+            credentials.refresh(Request())
+
+        return credentials.token
 
 
 def validate_and_maybe_shrink_image(

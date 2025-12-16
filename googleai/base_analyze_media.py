@@ -1,7 +1,6 @@
 import base64
 import json
 import logging
-import os
 import urllib.parse
 from pathlib import Path
 
@@ -18,11 +17,12 @@ try:
 
     from google import genai
     from google.cloud import aiplatform, storage
-    from google.oauth2 import service_account
 
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
+
+from googleai_utils import GoogleAuthHelper
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -30,9 +30,6 @@ logger = logging.getLogger("griptape_nodes_library_googleai")
 class BaseAnalyzeMedia(ControlNode):
     # Service constants for configuration
     SERVICE = "GoogleAI"
-    SERVICE_ACCOUNT_FILE_PATH = "GOOGLE_SERVICE_ACCOUNT_FILE_PATH"
-    PROJECT_ID = "GOOGLE_CLOUD_PROJECT_ID"
-    CREDENTIALS_JSON = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
     CLOUD_BUCKET_NAME = "GOOGLE_CLOUD_BUCKET_NAME"
 
     def __init__(self, **kwargs) -> None:
@@ -392,26 +389,15 @@ class BaseAnalyzeMedia(ControlNode):
         for i, media_source in enumerate(all_media_sources):
             self._log(f"📁 Adding media item {i + 1}: {media_source['type']}")
 
-            if media_source["type"] == "url":
-                # Public URL - use directly with MIME type
-                contents.append(
-                    {
-                        "file_data": {
-                            "file_uri": media_source["value"],
-                            "mime_type": media_source.get("mime_type", "application/octet-stream"),
-                        }
+            # Always include mime_type - the API requires it
+            contents.append(
+                {
+                    "file_data": {
+                        "file_uri": media_source["value"],
+                        "mime_type": media_source.get("mime_type", "application/octet-stream"),
                     }
-                )
-            else:  # GCS URI
-                # GCS URI - use directly with MIME type
-                contents.append(
-                    {
-                        "file_data": {
-                            "file_uri": media_source["value"],
-                            "mime_type": media_source.get("mime_type", "application/octet-stream"),
-                        }
-                    }
-                )
+                }
+            )
 
         # Generate content with all media
         try:
@@ -461,45 +447,11 @@ class BaseAnalyzeMedia(ControlNode):
         self._log(f"📁 Processing {len(media_artifacts)} media item(s)...")
 
         try:
-            final_project_id = None
-            credentials = None
-
-            # Try service account file first
-            service_account_file = GriptapeNodes.SecretsManager().get_secret(f"{self.SERVICE_ACCOUNT_FILE_PATH}")
-            if service_account_file and Path(service_account_file).exists():
-                self._log("🔑 Using service account file for authentication.")
-                try:
-                    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_file
-                    final_project_id = self._get_project_id(service_account_file)
-                    credentials = service_account.Credentials.from_service_account_file(service_account_file)
-                    self._log(f"✅ Service account authentication successful for project: {final_project_id}")
-                except Exception as e:
-                    self._log(f"❌ Service account file authentication failed: {e}")
-                    raise
-            else:
-                # Fall back to individual credentials from settings
-                self._log("🔑 Service account file not found, using individual credentials from settings.")
-                project_id = GriptapeNodes.SecretsManager().get_secret(f"{self.PROJECT_ID}")
-                credentials_json = GriptapeNodes.SecretsManager().get_secret(f"{self.CREDENTIALS_JSON}")
-
-                if not project_id:
-                    msg = "❌ GOOGLE_CLOUD_PROJECT_ID must be set in library settings when not using a service account file."
-                    raise ValueError(msg)
-
-                if credentials_json:
-                    try:
-                        import json
-
-                        cred_dict = json.loads(credentials_json)
-                        credentials = service_account.Credentials.from_service_account_info(cred_dict)
-                        self._log("✅ JSON credentials authentication successful.")
-                    except Exception as e:
-                        self._log(f"❌ JSON credentials authentication failed: {e}")
-                        raise
-                else:
-                    self._log("🔑 Using Application Default Credentials (e.g., gcloud auth).")
-
-                final_project_id = project_id
+            # Use GoogleAuthHelper for authentication
+            credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
+                GriptapeNodes.SecretsManager(),
+                log_func=self._log
+            )
 
             self._log(f"Project ID: {final_project_id}")
             self._log("Initializing Vertex AI...")
@@ -546,7 +498,8 @@ class BaseAnalyzeMedia(ControlNode):
         except ValueError as e:
             self._log(f"❌ CONFIGURATION ERROR: {e}")
             self._log("💡 Please set up Google Cloud credentials in the library settings:")
-            self._log("   - GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
+            self._log("   - GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH (workload identity federation config)")
+            self._log("   - OR GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
             self._log("   - OR GOOGLE_CLOUD_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON")
             self._log("💡 Also ensure the Generative Language API is enabled for your project:")
             self._log(

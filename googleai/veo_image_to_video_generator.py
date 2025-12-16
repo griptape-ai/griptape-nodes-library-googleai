@@ -21,11 +21,12 @@ try:
     from google import genai
     from google.cloud import aiplatform, storage
     from google.genai.types import GenerateVideosConfig, Image
-    from google.oauth2 import service_account
 
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
+
+from googleai_utils import GoogleAuthHelper, detect_image_mime_from_bytes
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -97,9 +98,6 @@ MODEL_CAPABILITIES = {
 class VeoImageToVideoGenerator(ControlNode):
     # Service constants for configuration
     SERVICE = "GoogleAI"
-    SERVICE_ACCOUNT_FILE_PATH = "GOOGLE_SERVICE_ACCOUNT_FILE_PATH"
-    PROJECT_ID = "GOOGLE_CLOUD_PROJECT_ID"
-    CREDENTIALS_JSON = "GOOGLE_APPLICATION_CREDENTIALS_JSON"
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -358,19 +356,6 @@ class VeoImageToVideoGenerator(ControlNode):
             # Be defensive if the base class changes how outputs are stored
             pass
 
-    def _get_project_id(self, service_account_file: str) -> str:
-        """Read the project_id from the service account JSON file."""
-        if not os.path.exists(service_account_file):
-            raise FileNotFoundError(f"Service account file not found: {service_account_file}")
-
-        with open(service_account_file) as f:
-            service_account_info = json.load(f)
-
-        project_id = service_account_info.get("project_id")
-        if not project_id:
-            raise ValueError("No 'project_id' found in the service account file.")
-
-        return project_id
 
     def _get_image_base64(self, image_artifact) -> tuple[str, str]:
         """Convert image artifact to base64 string and return base64 data and mime type."""
@@ -380,14 +365,19 @@ class VeoImageToVideoGenerator(ControlNode):
         if isinstance(image_artifact, ImageUrlArtifact):
             # Download image from URL
             self._log(f"📥 Downloading image from URL: {image_artifact.value}")
-            response = requests.get(image_artifact.value)
+            response = requests.get(image_artifact.value, timeout=30)
             response.raise_for_status()
             image_data = response.content
 
-            # Determine mime type from URL or response headers
-            content_type = response.headers.get("content-type", "image/jpeg")
-            if "png" in content_type.lower():
+            # Determine mime type from response headers
+            content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+            # If MIME type is missing or generic, detect from bytes
+            if not content_type or content_type == "application/octet-stream":
+                mime_type = detect_image_mime_from_bytes(image_data) or "image/png"
+            elif "png" in content_type:
                 mime_type = "image/png"
+            elif "webp" in content_type:
+                mime_type = "image/webp"
             else:
                 mime_type = "image/jpeg"
 
@@ -403,7 +393,8 @@ class VeoImageToVideoGenerator(ControlNode):
                 # Try to get the raw value
                 image_data = image_artifact.value
 
-            mime_type = "image/png"  # Default for ImageArtifact
+            # Detect mime type from bytes
+            mime_type = detect_image_mime_from_bytes(image_data) or "image/png"
         else:
             raise ValueError(f"Unsupported image artifact type: {type(image_artifact)}")
 
@@ -631,51 +622,11 @@ class VeoImageToVideoGenerator(ControlNode):
             return
 
         try:
-            final_project_id = None
-            credentials = None
-
-            # Try service account file first
-            service_account_file = GriptapeNodes.SecretsManager().get_secret(f"{self.SERVICE_ACCOUNT_FILE_PATH}")
-
-            if service_account_file and os.path.exists(service_account_file):
-                self._log("🔑 Using service account file for authentication.")
-                try:
-                    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_file
-                    final_project_id = self._get_project_id(service_account_file)
-                    credentials = service_account.Credentials.from_service_account_file(service_account_file)
-                    self._log(f"✅ Service account authentication successful for project: {final_project_id}")
-                except Exception as e:
-                    self._log(f"❌ Service account file authentication failed: {e}")
-                    raise
-            else:
-                # Fall back to individual credentials from settings
-                self._log("🔑 Service account file not found, using individual credentials from settings.")
-                project_id = GriptapeNodes.SecretsManager().get_secret(f"{self.PROJECT_ID}")
-                credentials_json = GriptapeNodes.SecretsManager().get_secret(f"{self.CREDENTIALS_JSON}")
-
-                if credentials_json:
-                    try:
-                        import json
-
-                        cred_dict = json.loads(credentials_json)
-                        credentials = service_account.Credentials.from_service_account_info(cred_dict)
-                        final_project_id = cred_dict.get("project_id") or project_id
-                        if not final_project_id:
-                            raise ValueError(
-                                "❌ Could not determine project ID. Provide GOOGLE_CLOUD_PROJECT_ID or include 'project_id' in GOOGLE_APPLICATION_CREDENTIALS_JSON."
-                            )
-                        self._log(f"✅ JSON credentials authentication successful for project: {final_project_id}")
-                    except Exception as e:
-                        self._log(f"❌ JSON credentials authentication failed: {e}")
-                        raise
-                else:
-                    # No JSON creds; rely on provided project_id and ADC
-                    if not project_id:
-                        raise ValueError(
-                            "❌ Provide GOOGLE_CLOUD_PROJECT_ID or GOOGLE_APPLICATION_CREDENTIALS_JSON containing a 'project_id'."
-                        )
-                    self._log("🔑 Using Application Default Credentials (e.g., gcloud auth).")
-                    final_project_id = project_id
+            # Use GoogleAuthHelper for authentication
+            credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
+                GriptapeNodes.SecretsManager(),
+                log_func=self._log
+            )
 
             self._log(f"Project ID: {final_project_id}")
             self._log("Initializing Vertex AI...")
@@ -752,7 +703,8 @@ class VeoImageToVideoGenerator(ControlNode):
         except ValueError as e:
             self._log(f"❌ CONFIGURATION ERROR: {e}")
             self._log("💡 Please set up Google Cloud credentials in the library settings:")
-            self._log("   - GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
+            self._log("   - GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH (recommended, path to workload identity config)")
+            self._log("   - OR GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
             self._log("   - OR GOOGLE_CLOUD_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON")
         except Exception as e:
             self._log(f"❌ An unexpected error occurred: {e}")
