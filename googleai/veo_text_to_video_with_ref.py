@@ -3,7 +3,6 @@ import time
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
@@ -374,7 +373,6 @@ class VeoTextToVideoWithRef(ControlNode):
             # Be defensive if the base class changes how outputs are stored
             pass
 
-
     def _get_image_base64(self, image_artifact) -> tuple[str, str]:
         """Convert image artifact to base64 string and return base64 data and mime type."""
         self._log("🖼️ Converting image to base64...")
@@ -594,8 +592,7 @@ class VeoTextToVideoWithRef(ControlNode):
         try:
             # Use GoogleAuthHelper for authentication
             credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
-                GriptapeNodes.SecretsManager(),
-                log_func=self._log
+                GriptapeNodes.SecretsManager(), log_func=self._log
             )
 
             self._log(f"Project ID: {final_project_id}")

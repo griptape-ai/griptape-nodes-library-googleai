@@ -3,7 +3,6 @@ import time
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageUrlArtifact
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
@@ -216,7 +215,6 @@ class VertexAIImageGenerator(ControlNode):
         logger.info(message)
         self.append_value_to_parameter("logs", message + "\n")
 
-
     def _get_gcs_client(self, project_id: str, credentials):
         """Get a cached or new GCS client."""
         if project_id in self._gcs_client_cache:
@@ -259,7 +257,7 @@ class VertexAIImageGenerator(ControlNode):
 
             return ImageUrlArtifact(value=static_url, name=f"text_to_image_{timestamp}")
         except Exception as e:
-            raise ValueError(f"Failed to create image artifact: {e!s}")
+            raise ValueError(f"Failed to create image artifact: {e!s}") from e
 
     def _generate_and_process_image(
         self,
@@ -366,8 +364,7 @@ class VertexAIImageGenerator(ControlNode):
         try:
             # Use GoogleAuthHelper for authentication
             credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
-                GriptapeNodes.SecretsManager(),
-                log_func=self._log
+                GriptapeNodes.SecretsManager(), log_func=self._log
             )
 
             self._log(f"Project ID: {final_project_id}")

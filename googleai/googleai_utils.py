@@ -2,7 +2,8 @@
 
 import json
 import os
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 def detect_image_mime_from_bytes(data: bytes) -> str | None:
@@ -12,17 +13,18 @@ def detect_image_mime_from_bytes(data: bytes) -> str | None:
     """
     if len(data) < 12:
         return None
-    if data[:8] == b'\x89PNG\r\n\x1a\n':
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
         return "image/png"
-    if data[:2] == b'\xff\xd8':
+    if data[:2] == b"\xff\xd8":
         return "image/jpeg"
-    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return "image/webp"
-    if data[4:12] in (b'ftypheic', b'ftypheix', b'ftypmif1'):
+    if data[4:12] in (b"ftypheic", b"ftypheix", b"ftypmif1"):
         return "image/heic"
-    if data[4:12] in (b'ftypheif', b'ftypmif1'):
+    if data[4:12] in (b"ftypheif", b"ftypmif1"):
         return "image/heif"
     return None
+
 
 try:
     import io as _io
@@ -74,8 +76,7 @@ class GoogleAuthHelper:
 
     @staticmethod
     def get_credentials_and_project(
-        secrets_manager: Any,
-        log_func: Callable[[str], None] | None = None
+        secrets_manager: Any, log_func: Callable[[str], None] | None = None
     ) -> tuple[Any, str]:
         """Get Google Cloud credentials and project ID.
 
@@ -112,8 +113,7 @@ class GoogleAuthHelper:
                 # Use google.auth.load_credentials_from_file which auto-detects the
                 # credential type (identity_pool, aws, pluggable) based on the config file
                 credentials, _ = google.auth.load_credentials_from_file(
-                    workload_identity_config,
-                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                    workload_identity_config, scopes=["https://www.googleapis.com/auth/cloud-platform"]
                 )
 
                 # Try to extract project_id from config
@@ -136,8 +136,7 @@ class GoogleAuthHelper:
 
                 if not final_project_id:
                     raise ValueError(
-                        "Could not determine project ID from workload identity config. "
-                        "Set GOOGLE_CLOUD_PROJECT_ID."
+                        "Could not determine project ID from workload identity config. Set GOOGLE_CLOUD_PROJECT_ID."
                     )
 
                 _log(f"✅ Workload identity federation authentication successful for project: {final_project_id}")
@@ -156,8 +155,7 @@ class GoogleAuthHelper:
                     final_project_id = sa_data.get("project_id")
 
                 credentials = service_account.Credentials.from_service_account_file(
-                    service_account_file,
-                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                    service_account_file, scopes=["https://www.googleapis.com/auth/cloud-platform"]
                 )
 
                 if not final_project_id:
@@ -176,8 +174,7 @@ class GoogleAuthHelper:
             try:
                 cred_dict = json.loads(credentials_json)
                 credentials = service_account.Credentials.from_service_account_info(
-                    cred_dict,
-                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                    cred_dict, scopes=["https://www.googleapis.com/auth/cloud-platform"]
                 )
                 final_project_id = cred_dict.get("project_id") or project_id
 
@@ -263,7 +260,9 @@ def validate_and_maybe_shrink_image(
 
     # Validate MIME type
     if mime_type not in allowed_mimes:
-        error_msg = f"❌ Image '{image_name}' has unsupported MIME type: {mime_type}. Supported: {', '.join(allowed_mimes)}"
+        error_msg = (
+            f"❌ Image '{image_name}' has unsupported MIME type: {mime_type}. Supported: {', '.join(allowed_mimes)}"
+        )
         _log(error_msg)
         raise ValueError(error_msg)
 

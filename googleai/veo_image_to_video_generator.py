@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import time
@@ -6,7 +5,6 @@ from typing import Any
 
 import requests
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
@@ -356,7 +354,6 @@ class VeoImageToVideoGenerator(ControlNode):
             # Be defensive if the base class changes how outputs are stored
             pass
 
-
     def _get_image_base64(self, image_artifact) -> tuple[str, str]:
         """Convert image artifact to base64 string and return base64 data and mime type."""
         self._log("🖼️ Converting image to base64...")
@@ -579,7 +576,9 @@ class VeoImageToVideoGenerator(ControlNode):
         location = self.get_parameter_value("location")
 
         # Debug: Log aspect ratio value immediately after reading
-        self._log(f"🔍 DEBUG: Read aspect_ratio parameter value: '{aspect_ratio}' (type: {type(aspect_ratio).__name__})")
+        self._log(
+            f"🔍 DEBUG: Read aspect_ratio parameter value: '{aspect_ratio}' (type: {type(aspect_ratio).__name__})"
+        )
 
         # Handle dict input (can happen after serialization/deserialization)
         # Handle image_artifact dict
@@ -624,8 +623,7 @@ class VeoImageToVideoGenerator(ControlNode):
         try:
             # Use GoogleAuthHelper for authentication
             credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
-                GriptapeNodes.SecretsManager(),
-                log_func=self._log
+                GriptapeNodes.SecretsManager(), log_func=self._log
             )
 
             self._log(f"Project ID: {final_project_id}")
@@ -677,7 +675,10 @@ class VeoImageToVideoGenerator(ControlNode):
             self._log(f"📦 Config kwargs: {config_kwargs}")
             config = GenerateVideosConfig(**config_kwargs)
             # Log what's actually in the config object
-            config_dict = {k: getattr(config, k, None) for k in ['aspect_ratio', 'aspectRatio', 'resolution', 'duration_seconds', 'durationSeconds']}
+            config_dict = {
+                k: getattr(config, k, None)
+                for k in ["aspect_ratio", "aspectRatio", "resolution", "duration_seconds", "durationSeconds"]
+            }
             self._log(f"✅ GenerateVideosConfig created. Config attributes: {config_dict}")
 
             api_params = {

@@ -59,7 +59,7 @@ For a single video:
     {{
       "id": "c001",
       "start": "00:00:00:00",
-      "end": "00:00:12:12", 
+      "end": "00:00:12:12",
       "title": "Brief descriptive title",
       "summary": "Detailed description of what happens in this segment",
       "tags": ["relevant", "tags"],
@@ -81,7 +81,7 @@ For multiple videos:
         {{
           "id": "c001",
           "start": "00:00:00:00",
-          "end": "00:00:12:12", 
+          "end": "00:00:12:12",
           "title": "Brief descriptive title",
           "summary": "Detailed description of what happens in this segment",
           "tags": ["relevant", "tags"],
@@ -90,7 +90,7 @@ For multiple videos:
       ]
     }},
     {{
-      "title": "Video 2 Title", 
+      "title": "Video 2 Title",
       "filename": "video2.mp4",
       "time_format": "smpte",
       "rate": <actual_frame_rate>,

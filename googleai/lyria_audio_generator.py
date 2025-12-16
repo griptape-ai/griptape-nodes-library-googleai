@@ -5,7 +5,6 @@ from typing import Any
 
 import requests
 from griptape.artifacts import AudioUrlArtifact
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
@@ -14,8 +13,6 @@ from griptape_nodes.traits.options import Options
 
 # Attempt to import Google libraries
 try:
-    import google.auth
-    import google.auth.transport.requests
     from google.cloud import aiplatform
 
     GOOGLE_INSTALLED = True
@@ -111,7 +108,6 @@ class LyriaAudioGenerator(ControlNode):
         """Append a message to the logs output parameter."""
         logger.info(message)
         self.append_value_to_parameter("logs", message + "\n")
-
 
     def _generate_audio(self, final_project_id, credentials, prompt, negative_prompt, seed, location) -> None:
         """Generate audio and process result - called via yield."""
@@ -297,7 +293,7 @@ class LyriaAudioGenerator(ControlNode):
                         self._log("   • 'minimalist piano with reverb over soft nature sounds'")
                         self._log("\n🔄 You can also try running the same prompt again - sometimes it works on retry!")
 
-                except:
+                except Exception:
                     self._log("❌ API Error: Bad Request (400)")
             else:
                 self._log(f"❌ HTTP Error: {e}")
@@ -333,8 +329,7 @@ class LyriaAudioGenerator(ControlNode):
         try:
             # Use GoogleAuthHelper for authentication
             credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
-                GriptapeNodes.SecretsManager(),
-                log_func=self._log
+                GriptapeNodes.SecretsManager(), log_func=self._log
             )
 
             self._log(f"Project ID: {final_project_id}")
