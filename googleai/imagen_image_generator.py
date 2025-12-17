@@ -373,7 +373,9 @@ class VertexAIImageGenerator(ControlNode):
             aiplatform.init(project=final_project_id, location=location, credentials=credentials)
 
             self._log("Initializing Generative AI Client...")
-            client = genai.Client(vertexai=True, project=final_project_id, location=location)
+            client = genai.Client(
+                vertexai=True, project=final_project_id, location=location, credentials=credentials
+            )
 
             self._log("Starting image generation...\n")
 

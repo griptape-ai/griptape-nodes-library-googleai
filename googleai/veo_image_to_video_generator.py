@@ -632,7 +632,9 @@ class VeoImageToVideoGenerator(ControlNode):
             aiplatform.init(project=final_project_id, location=location, credentials=credentials)
 
             self._log("Initializing Generative AI Client...")
-            client = genai.Client(vertexai=True, project=final_project_id, location=location)
+            client = genai.Client(
+                vertexai=True, project=final_project_id, location=location, credentials=credentials
+            )
 
             # Convert image to base64
             base64_data, mime_type = self._get_image_base64(image_artifact)

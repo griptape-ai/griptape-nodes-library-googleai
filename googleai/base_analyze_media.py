@@ -456,7 +456,9 @@ class BaseAnalyzeMedia(ControlNode):
             aiplatform.init(project=final_project_id, location=location, credentials=credentials)
 
             self._log("Initializing Generative AI Client...")
-            client = genai.Client(vertexai=True, project=final_project_id, location=location)
+            client = genai.Client(
+                vertexai=True, project=final_project_id, location=location, credentials=credentials
+            )
 
             # Log client configuration for debugging
             self._log(f"🔍 Client configured with project: {final_project_id}")

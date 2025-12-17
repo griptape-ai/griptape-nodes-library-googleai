@@ -675,7 +675,9 @@ class NanoBananaProImageGenerator(ControlNode):
                 aiplatform.init(project=project_id, location=location, credentials=credentials)
 
                 self._log("Initializing Generative AI Client (Vertex AI)...")
-                client = genai.Client(vertexai=True, project=project_id, location=location)
+                client = genai.Client(
+                    vertexai=True, project=project_id, location=location, credentials=credentials
+                )
 
             self._log("🚀 Starting Gemini 3 Pro image generation...")
             self._generate_and_process(
