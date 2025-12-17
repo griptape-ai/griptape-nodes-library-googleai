@@ -14,6 +14,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
 from griptape_nodes.traits.options import Options
 
 # Attempt to import Google libraries
@@ -512,7 +513,7 @@ class VeoImageToVideoGenerator(ControlNode):
                     self._log(f"Saving video bytes to static storage as {filename}...")
 
                     static_files_manager = GriptapeNodes.StaticFilesManager()
-                    url = static_files_manager.save_static_file(video_bytes, filename)
+                    url = static_files_manager.save_static_file(video_bytes, filename, ExistingFilePolicy.CREATE_NEW)
 
                     url_artifact = VideoUrlArtifact(value=url, name=filename)
                     video_artifacts.append(url_artifact)
