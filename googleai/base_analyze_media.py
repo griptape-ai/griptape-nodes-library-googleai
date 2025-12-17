@@ -13,7 +13,6 @@ from griptape_nodes.traits.slider import Slider
 # Attempt to import Google libraries
 try:
     import hashlib
-    import time
 
     from google import genai
     from google.cloud import aiplatform, storage
@@ -449,8 +448,7 @@ class BaseAnalyzeMedia(ControlNode):
         try:
             # Use GoogleAuthHelper for authentication
             credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
-                GriptapeNodes.SecretsManager(),
-                log_func=self._log
+                GriptapeNodes.SecretsManager(), log_func=self._log
             )
 
             self._log(f"Project ID: {final_project_id}")

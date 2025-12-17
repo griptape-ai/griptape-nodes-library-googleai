@@ -2,14 +2,20 @@ import logging
 import time
 from typing import Any
 
+from googleai_utils import (
+    GoogleAuthHelper,
+    detect_image_mime_from_bytes,
+    validate_and_maybe_shrink_image,
+)
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
 from griptape_nodes.traits.options import Options
+
+logger = logging.getLogger("griptape_nodes_library_googleai")
 
 try:
     import io as _io
@@ -27,10 +33,6 @@ try:
 except Exception:
     REQUESTS_INSTALLED = False
 
-from googleai_utils import detect_image_mime_from_bytes, validate_and_maybe_shrink_image
-
-logger = logging.getLogger("griptape_nodes_library_googleai")
-
 try:
     from google import genai
     from google.cloud import aiplatform
@@ -40,9 +42,10 @@ try:
 
     # Try to import ImageConfig explicitly (available in google-genai >= 1.40.0)
     try:
-        from google.genai.types import ImageConfig
+        from google.genai.types import ImageConfig as _ImageConfig  # noqa: F401
 
         IMAGE_CONFIG_AVAILABLE = True
+        del _ImageConfig  # Only used for availability check
     except (ImportError, AttributeError) as e:
         logger.error(f"ImageConfig not available: {e}")
         IMAGE_CONFIG_AVAILABLE = False
@@ -53,9 +56,6 @@ except ImportError as e:
     GOOGLE_INSTALLED = False
     IMAGE_CONFIG_AVAILABLE = False
     GOOGLE_GENAI_VERSION = "not installed"
-
-from googleai_utils import GoogleAuthHelper
-
 
 VERTEX_AI = "Vertex AI"
 AI_STUDIO_API = "AI Studio API"
@@ -284,7 +284,6 @@ class NanoBananaProImageGenerator(ControlNode):
             self.parameter_output_values["logs"] = ""
         except Exception:
             pass
-
 
     def _create_image_artifact(self, image_bytes: bytes, mime_type: str) -> ImageUrlArtifact:
         import hashlib
@@ -668,8 +667,7 @@ class NanoBananaProImageGenerator(ControlNode):
 
                 # Use GoogleAuthHelper for authentication
                 credentials, project_id = GoogleAuthHelper.get_credentials_and_project(
-                    GriptapeNodes.SecretsManager(),
-                    log_func=self._log
+                    GriptapeNodes.SecretsManager(), log_func=self._log
                 )
 
                 self._log(f"Project ID: {project_id}")

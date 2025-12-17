@@ -8,7 +8,6 @@ from griptape.artifacts import (
     ImageUrlArtifact,
     TextArtifact,
 )
-
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -212,7 +211,6 @@ class GeminiImageGenerator(ControlNode):
             # Be defensive if the base class changes how outputs are stored
             pass
 
-
     def _create_image_artifact(self, image_bytes: bytes, mime_type: str) -> ImageUrlArtifact:
         import hashlib
 
@@ -273,7 +271,6 @@ class GeminiImageGenerator(ControlNode):
                 mime = "application/pdf" if getattr(art, "name", "").lower().endswith(".pdf") else "text/plain"
             return data, mime
         raise TypeError("Unsupported file artifact type.")
-
 
     # ---------- Core generation ----------
     def _generate_and_process(
@@ -456,8 +453,7 @@ class GeminiImageGenerator(ControlNode):
         try:
             # Use GoogleAuthHelper for authentication
             credentials, project_id = GoogleAuthHelper.get_credentials_and_project(
-                GriptapeNodes.SecretsManager(),
-                log_func=self._log
+                GriptapeNodes.SecretsManager(), log_func=self._log
             )
 
             self._log(f"Project ID: {project_id}")
