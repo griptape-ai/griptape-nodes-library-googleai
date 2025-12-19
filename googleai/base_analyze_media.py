@@ -6,6 +6,7 @@ from pathlib import Path
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes  # type: ignore[reportMissingImports]
 from griptape_nodes.traits.options import Options
 from griptape_nodes.traits.slider import Slider
@@ -38,12 +39,12 @@ class BaseAnalyzeMedia(ControlNode):
 
         # Main Parameters
         self.add_parameter(
-            Parameter(
+            ParameterString(
                 name="prompt",
-                type="str",
                 tooltip="The prompt/question to ask about the media content.",
-                ui_options={"multiline": True, "placeholder_text": "What would you like to know about this media?"},
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                multiline=True,
+                placeholder_text="What would you like to know about this media?",
+                allow_output=False,
             )
         )
 

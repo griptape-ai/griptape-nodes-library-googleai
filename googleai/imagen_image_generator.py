@@ -8,6 +8,7 @@ from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
 from griptape_nodes.traits.options import Options
@@ -48,14 +49,12 @@ class VertexAIImageGenerator(ControlNode):
 
         # Main Parameters - matching text-to-video node order
         self.add_parameter(
-            Parameter(
+            ParameterString(
                 name="prompt",
-                input_types=["str"],
-                type="str",
-                output_type="str",
                 tooltip="The text prompt for the image.",
-                ui_options={"multiline": True, "placeholder_text": "The text prompt for the image."},
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY, ParameterMode.OUTPUT},
+                multiline=True,
+                placeholder_text="The text prompt for the image.",
+                allow_output=True,
             )
         )
 

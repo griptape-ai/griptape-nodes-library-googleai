@@ -8,6 +8,7 @@ from griptape.artifacts import AudioUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
+from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
 from griptape_nodes.traits.options import Options
@@ -36,25 +37,22 @@ class LyriaAudioGenerator(ControlNode):
 
         # Main Parameters
         self.add_parameter(
-            Parameter(
+            ParameterString(
                 name="prompt",
-                type="str",
                 tooltip="Describe unique instrumental music with creative specificity. Examples: 'vintage synthesizer melodies with rain sounds and distant thunder', 'acoustic guitar fingerpicking with subtle string arrangements'. Avoid generic terms like 'blues beat' or 'jazz song' to prevent copyright blocking.",
-                ui_options={
-                    "multiline": True,
-                    "placeholder_text": "vintage synthesizer melodies with rain sounds and distant thunder",
-                },
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                multiline=True,
+                placeholder_text="vintage synthesizer melodies with rain sounds and distant thunder",
+                allow_output=False,
             )
         )
 
         self.add_parameter(
-            Parameter(
+            ParameterString(
                 name="negative_prompt",
-                type="str",
                 tooltip="Optional: Describe what to exclude from the generated audio (e.g., 'vocals, percussion, fast tempo'). This can help avoid recitation blocks by steering away from copyrighted patterns.",
-                ui_options={"multiline": True, "placeholder_text": "vocals, percussion, fast tempo"},
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                multiline=True,
+                placeholder_text="vocals, percussion, fast tempo",
+                allow_output=False,
             )
         )
 
