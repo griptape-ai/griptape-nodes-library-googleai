@@ -67,12 +67,12 @@ class VeoTextToVideoWithRef(ControlNode):
 
         # Main Parameters
         self.add_parameter(
-            Parameter(
+            ParameterString(
                 name="prompt",
-                type="str",
                 tooltip="The text prompt for video generation.",
-                ui_options={"multiline": True, "placeholder_text": "Describe the video you want to generate"},
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+                multiline=True,
+                placeholder_text="Describe the video you want to generate",
+                allow_output=False,
             )
         )
 

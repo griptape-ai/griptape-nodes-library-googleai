@@ -11,6 +11,7 @@ from griptape.artifacts import (
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
+from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
 from griptape_nodes.traits.options import Options
@@ -64,14 +65,12 @@ class GeminiImageGenerator(ControlNode):
 
         # ===== Core configuration =====
         self.add_parameter(
-            Parameter(
+            ParameterString(
                 name="prompt",
-                input_types=["str"],
-                type="str",
-                output_type="str",
                 tooltip="User prompt for generation.",
-                ui_options={"multiline": True, "placeholder_text": "Enter prompt..."},
-                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY, ParameterMode.OUTPUT},
+                multiline=True,
+                placeholder_text="Enter prompt...",
+                allow_output=True,
             )
         )
 
