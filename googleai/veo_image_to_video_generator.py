@@ -8,11 +8,12 @@ from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
+from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 # Attempt to import Google libraries
@@ -201,6 +202,55 @@ class VeoImageToVideoGenerator(ControlNode):
 
         self.add_parameter(
             ParameterString(
+                name="compression_quality",
+                tooltip="Video compression quality. 'lossless' provides higher quality but larger file size.",
+                default_value="optimized",
+                traits={Options(choices=["optimized", "lossless"])},
+                allow_output=False,
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
+                name="person_generation",
+                tooltip="Controls generation of people/faces. 'allow_all' requires Google allowlist approval.",
+                default_value="allow_adult",
+                traits={Options(choices=["allow_adult", "dont_allow", "allow_all"])},
+                allow_output=False,
+            )
+        )
+
+        self.add_parameter(
+            ParameterBool(
+                name="enhance_prompt",
+                tooltip="Use Gemini to enhance prompts for better results. Veo 2 models only.",
+                default_value=True,
+                allow_output=False,
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
+                name="resize_mode",
+                tooltip="How to handle input image aspect ratio. Veo 3 models only.",
+                default_value="pad",
+                traits={Options(choices=["pad", "crop"])},
+                allow_output=False,
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
+                name="storage_uri",
+                tooltip="Optional GCS bucket URI for output storage (e.g., gs://bucket-name/path). Required when compression_quality is 'lossless'.",
+                default_value="",
+                placeholder_text="gs://your-bucket/output-path",
+                allow_output=False,
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
                 name="location",
                 tooltip="Google Cloud location for the generation job.",
                 default_value="us-central1",
@@ -297,12 +347,10 @@ class VeoImageToVideoGenerator(ControlNode):
             return
 
         capabilities = MODEL_CAPABILITIES[model]
+        is_veo3 = capabilities.get("version", "").startswith("veo3")
 
         # Update last_frame visibility
-        if capabilities["supports_last_frame"]:
-            self.show_parameter_by_name("last_frame")
-        else:
-            self.hide_parameter_by_name("last_frame")
+        self._set_parameter_visibility("last_frame", visible=capabilities["supports_last_frame"])
 
         # Update duration choices
         current_duration = self.get_parameter_value("duration")
@@ -312,26 +360,21 @@ class VeoImageToVideoGenerator(ControlNode):
             # Set to default if current value is not in new choices
             self._update_option_choices("duration", capabilities["duration_choices"], capabilities["duration_default"])
 
+        # Update enhance_prompt visibility (Veo 2 only)
+        self._set_parameter_visibility("enhance_prompt", visible=not is_veo3)
+
+        # Update resize_mode visibility (Veo 3 only)
+        self._set_parameter_visibility("resize_mode", visible=is_veo3)
+
     def _update_video_output_visibility(self, num_videos: int) -> None:
         """Update video output parameter visibility based on number of videos."""
         # Always show video_1_1 (first video)
-        self.show_parameter_by_name("video_1_1")
+        self._set_parameter_visibility("video_1_1", visible=True)
 
         # Show/hide additional videos based on count
-        if num_videos >= 2:
-            self.show_parameter_by_name("video_1_2")
-        else:
-            self.hide_parameter_by_name("video_1_2")
-
-        if num_videos >= 3:
-            self.show_parameter_by_name("video_2_1")
-        else:
-            self.hide_parameter_by_name("video_2_1")
-
-        if num_videos >= 4:
-            self.show_parameter_by_name("video_2_2")
-        else:
-            self.hide_parameter_by_name("video_2_2")
+        self._set_parameter_visibility("video_1_2", visible=num_videos >= 2)
+        self._set_parameter_visibility("video_2_1", visible=num_videos >= 3)
+        self._set_parameter_visibility("video_2_2", visible=num_videos >= 4)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "model":
@@ -571,6 +614,11 @@ class VeoImageToVideoGenerator(ControlNode):
         aspect_ratio = self.get_parameter_value("aspect_ratio")
         resolution = self.get_parameter_value("resolution")
         duration = self.get_parameter_value("duration")
+        compression_quality = self.get_parameter_value("compression_quality")
+        person_generation = self.get_parameter_value("person_generation")
+        enhance_prompt = self.get_parameter_value("enhance_prompt")
+        resize_mode = self.get_parameter_value("resize_mode")
+        storage_uri = self.get_parameter_value("storage_uri")
 
         self._seed_parameter.preprocess()
         seed = self._seed_parameter.get_seed()
@@ -621,6 +669,12 @@ class VeoImageToVideoGenerator(ControlNode):
             self._log("ERROR: 9:16 aspect ratio is not supported by veo-3.0-generate-preview model.")
             return
 
+        # Validate storage_uri is required for lossless compression
+        if compression_quality == "lossless" and not storage_uri:
+            self._log("ERROR: storage_uri is required when compression_quality is set to 'lossless'.")
+            self._log("💡 Please provide a GCS bucket URI (e.g., gs://your-bucket/output-path).")
+            return
+
         try:
             # Use GoogleAuthHelper for authentication
             credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
@@ -632,9 +686,7 @@ class VeoImageToVideoGenerator(ControlNode):
             aiplatform.init(project=final_project_id, location=location, credentials=credentials)
 
             self._log("Initializing Generative AI Client...")
-            client = genai.Client(
-                vertexai=True, project=final_project_id, location=location, credentials=credentials
-            )
+            client = genai.Client(vertexai=True, project=final_project_id, location=location, credentials=credentials)
 
             # Convert image to base64
             base64_data, mime_type = self._get_image_base64(image_artifact)
@@ -674,6 +726,27 @@ class VeoImageToVideoGenerator(ControlNode):
             # Add negative prompt if provided - goes in config
             if negative_prompt:
                 config_kwargs["negative_prompt"] = negative_prompt
+
+            # Add compression quality if provided
+            if compression_quality:
+                config_kwargs["compression_quality"] = compression_quality
+
+            # Add person generation setting
+            if person_generation:
+                config_kwargs["person_generation"] = person_generation
+
+            # Add enhance_prompt for Veo 2 models only
+            is_veo3 = capabilities.get("version", "").startswith("veo3")
+            if not is_veo3 and enhance_prompt is not None:
+                config_kwargs["enhance_prompt"] = enhance_prompt
+
+            # Add resize_mode for Veo 3 models only
+            if is_veo3 and resize_mode:
+                config_kwargs["resize_mode"] = resize_mode
+
+            # Add storage_uri if provided
+            if storage_uri:
+                config_kwargs["output_gcs_uri"] = storage_uri
 
             self._log(f"📦 Config kwargs: {config_kwargs}")
             config = GenerateVideosConfig(**config_kwargs)

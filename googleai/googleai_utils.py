@@ -98,10 +98,10 @@ class GoogleAuthHelper:
                 log_func(msg)
 
         # Get all auth-related secrets
-        workload_identity_config = secrets_manager.get_secret(GoogleAuthHelper.WORKLOAD_IDENTITY_CONFIG_PATH)
-        service_account_file = secrets_manager.get_secret(GoogleAuthHelper.SERVICE_ACCOUNT_FILE_PATH)
-        project_id = secrets_manager.get_secret(GoogleAuthHelper.PROJECT_ID)
-        credentials_json = secrets_manager.get_secret(GoogleAuthHelper.CREDENTIALS_JSON)
+        workload_identity_config = secrets_manager.get_secret(GoogleAuthHelper.WORKLOAD_IDENTITY_CONFIG_PATH, should_error_on_not_found=False)
+        service_account_file = secrets_manager.get_secret(GoogleAuthHelper.SERVICE_ACCOUNT_FILE_PATH, should_error_on_not_found=False)
+        project_id = secrets_manager.get_secret(GoogleAuthHelper.PROJECT_ID, should_error_on_not_found=False)
+        credentials_json = secrets_manager.get_secret(GoogleAuthHelper.CREDENTIALS_JSON, should_error_on_not_found=False)
 
         credentials = None
         final_project_id = None

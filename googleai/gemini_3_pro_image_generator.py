@@ -295,7 +295,9 @@ class NanoBananaProImageGenerator(ControlNode):
             "image/webp": "webp",
         }.get(mime_type, "png")
         filename = f"Gemini3ProImage_{timestamp}_{content_hash}.{ext}"
-        static_url = GriptapeNodes.StaticFilesManager().save_static_file(image_bytes, filename, ExistingFilePolicy.CREATE_NEW)
+        static_url = GriptapeNodes.StaticFilesManager().save_static_file(
+            image_bytes, filename, ExistingFilePolicy.CREATE_NEW
+        )
         return ImageUrlArtifact(value=static_url, name=f"gemini_3_pro_image_{timestamp}")
 
     def _image_artifact_to_pil_image(
@@ -674,9 +676,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 aiplatform.init(project=project_id, location=location, credentials=credentials)
 
                 self._log("Initializing Generative AI Client (Vertex AI)...")
-                client = genai.Client(
-                    vertexai=True, project=project_id, location=location, credentials=credentials
-                )
+                client = genai.Client(vertexai=True, project=project_id, location=location, credentials=credentials)
 
             self._log("🚀 Starting Gemini 3 Pro image generation...")
             self._generate_and_process(
