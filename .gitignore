@@ -5,3 +5,6 @@ __pycache__/
 uv.lock
 uv.lock
 *.ipynb
+
+!griptape_nodes_library.json
+*.json

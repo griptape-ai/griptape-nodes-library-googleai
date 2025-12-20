@@ -10,8 +10,8 @@ from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 # Attempt to import Google libraries
@@ -190,6 +190,45 @@ class VeoTextToVideoWithRef(ControlNode):
 
         self.add_parameter(
             ParameterString(
+                name="compression_quality",
+                tooltip="Video compression quality. 'lossless' provides higher quality but larger file size.",
+                default_value="optimized",
+                traits={Options(choices=["optimized", "lossless"])},
+                allow_output=False,
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
+                name="person_generation",
+                tooltip="Controls generation of people/faces. 'allow_all' requires Google allowlist approval.",
+                default_value="allow_adult",
+                traits={Options(choices=["allow_adult", "dont_allow", "allow_all"])},
+                allow_output=False,
+            )
+        )
+
+        self.add_parameter(
+            ParameterBool(
+                name="enhance_prompt",
+                tooltip="Use Gemini to enhance prompts for better results. Veo 2 models only.",
+                default_value=True,
+                allow_output=False,
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
+                name="google_cloud_storage_uri",
+                tooltip="Optional GCS bucket URI for output storage (e.g., gs://bucket-name/path). Required when compression_quality is 'lossless'.",
+                default_value="",
+                placeholder_text="gs://your-bucket/output-path",
+                allow_output=False,
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
                 name="location",
                 tooltip="Google Cloud location for the generation job.",
                 default_value="us-central1",
@@ -279,7 +318,7 @@ class VeoTextToVideoWithRef(ControlNode):
         # Initialize reference image visibility based on default model
         default_model = self.get_parameter_value("model") or MODELS[0]
         self._update_reference_image_visibility_for_model(default_model)
-        self._update_generate_audio_visibility_for_model(default_model)
+        self._update_model_specific_visibility(default_model)
 
     def _update_reference_image_visibility_for_model(self, model: str) -> None:
         """Update reference image visibility based on the selected model."""
@@ -290,31 +329,25 @@ class VeoTextToVideoWithRef(ControlNode):
         max_refs = capabilities.get("max_reference_images", 0)
 
         # Always show first reference image (required)
-        self.show_parameter_by_name("reference_image_1")
+        self._set_parameter_visibility("reference_image_1", visible=True)
 
         # Show/hide additional reference images based on max count
-        if max_refs >= 3:
-            # veo-3.1-generate-preview: show all 3
-            self.show_parameter_by_name("reference_image_2")
-            self.show_parameter_by_name("reference_image_3")
-        else:
-            # veo-2.0-generate-exp: only show first (max_refs = 1)
-            self.hide_parameter_by_name("reference_image_2")
-            self.hide_parameter_by_name("reference_image_3")
+        self._set_parameter_visibility("reference_image_2", visible=max_refs >= 3)
+        self._set_parameter_visibility("reference_image_3", visible=max_refs >= 3)
 
-    def _update_generate_audio_visibility_for_model(self, model: str) -> None:
-        """Update generate_audio visibility based on the selected model (Veo 3 only)."""
+    def _update_model_specific_visibility(self, model: str) -> None:
+        """Update parameter visibility based on the selected model version."""
         if model not in MODEL_CAPABILITIES:
             return
 
         capabilities = MODEL_CAPABILITIES[model]
-        version = capabilities.get("version", "")
+        is_veo3 = capabilities.get("version", "") == "veo3"
 
-        # Only show generate_audio for Veo 3 models
-        if version == "veo3":
-            self.show_parameter_by_name("generate_audio")
-        else:
-            self.hide_parameter_by_name("generate_audio")
+        # generate_audio: Veo 3 only
+        self._set_parameter_visibility("generate_audio", visible=is_veo3)
+
+        # enhance_prompt: Veo 2 only
+        self._set_parameter_visibility("enhance_prompt", visible=not is_veo3)
 
     def _update_duration_choices_for_model(self, model: str) -> None:
         """Update duration choices based on the selected model."""
@@ -332,30 +365,19 @@ class VeoTextToVideoWithRef(ControlNode):
     def _update_video_output_visibility(self, num_videos: int) -> None:
         """Update video output parameter visibility based on number of videos."""
         # Always show video_1_1 (first video)
-        self.show_parameter_by_name("video_1_1")
+        self._set_parameter_visibility("video_1_1", visible=True)
 
         # Show/hide additional videos based on count
-        if num_videos >= 2:
-            self.show_parameter_by_name("video_1_2")
-        else:
-            self.hide_parameter_by_name("video_1_2")
-
-        if num_videos >= 3:
-            self.show_parameter_by_name("video_2_1")
-        else:
-            self.hide_parameter_by_name("video_2_1")
-
-        if num_videos >= 4:
-            self.show_parameter_by_name("video_2_2")
-        else:
-            self.hide_parameter_by_name("video_2_2")
+        self._set_parameter_visibility("video_1_2", visible=num_videos >= 2)
+        self._set_parameter_visibility("video_2_1", visible=num_videos >= 3)
+        self._set_parameter_visibility("video_2_2", visible=num_videos >= 4)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes."""
         if parameter.name == "model":
             self._update_duration_choices_for_model(value)
             self._update_reference_image_visibility_for_model(value)
-            self._update_generate_audio_visibility_for_model(value)
+            self._update_model_specific_visibility(value)
         elif parameter.name == "number_of_videos":
             self._update_video_output_visibility(value)
         self._seed_parameter.after_value_set(parameter, value)
@@ -574,6 +596,10 @@ class VeoTextToVideoWithRef(ControlNode):
         seed = self._seed_parameter.get_seed()
         duration = self.get_parameter_value("duration")
         generate_audio = self.get_parameter_value("generate_audio")
+        compression_quality = self.get_parameter_value("compression_quality")
+        person_generation = self.get_parameter_value("person_generation")
+        enhance_prompt = self.get_parameter_value("enhance_prompt")
+        google_cloud_storage_uri = self.get_parameter_value("google_cloud_storage_uri")
         num_videos = self.get_parameter_value("number_of_videos")
         location = self.get_parameter_value("location")
         reference_image_1 = self.get_parameter_value("reference_image_1")
@@ -590,6 +616,12 @@ class VeoTextToVideoWithRef(ControlNode):
             self._log("ERROR: At least one reference image is required.")
             return
 
+        # Validate google_cloud_storage_uri is required for lossless compression
+        if compression_quality == "lossless" and not google_cloud_storage_uri:
+            self._log("ERROR: google_cloud_storage_uri is required when compression_quality is set to 'lossless'.")
+            self._log("💡 Please provide a GCS bucket URI (e.g., gs://your-bucket/output-path).")
+            return
+
         try:
             # Use GoogleAuthHelper for authentication
             credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
@@ -601,9 +633,7 @@ class VeoTextToVideoWithRef(ControlNode):
             aiplatform.init(project=final_project_id, location=location, credentials=credentials)
 
             self._log("Initializing Generative AI Client...")
-            client = genai.Client(
-                vertexai=True, project=final_project_id, location=location, credentials=credentials
-            )
+            client = genai.Client(vertexai=True, project=final_project_id, location=location, credentials=credentials)
 
             # Process reference images
             reference_images = []
@@ -687,6 +717,23 @@ class VeoTextToVideoWithRef(ControlNode):
             # Add generateAudio if provided (Veo 3 models only)
             if generate_audio:
                 config_kwargs["generate_audio"] = True
+
+            # Add compression quality if provided
+            if compression_quality:
+                config_kwargs["compression_quality"] = compression_quality
+
+            # Add person generation setting
+            if person_generation:
+                config_kwargs["person_generation"] = person_generation
+
+            # Add enhance_prompt for Veo 2 models only
+            is_veo3 = capabilities.get("version", "") == "veo3"
+            if not is_veo3 and enhance_prompt is not None:
+                config_kwargs["enhance_prompt"] = enhance_prompt
+
+            # Add google_cloud_storage_uri if provided
+            if google_cloud_storage_uri:
+                config_kwargs["output_gcs_uri"] = google_cloud_storage_uri
 
             # Add seed - SeedParameter handles randomization logic
             config_kwargs["seed"] = seed
