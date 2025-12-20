@@ -219,7 +219,7 @@ class VeoTextToVideoWithRef(ControlNode):
 
         self.add_parameter(
             ParameterString(
-                name="storage_uri",
+                name="google_cloud_storage_uri",
                 tooltip="Optional GCS bucket URI for output storage (e.g., gs://bucket-name/path). Required when compression_quality is 'lossless'.",
                 default_value="",
                 placeholder_text="gs://your-bucket/output-path",
@@ -599,7 +599,7 @@ class VeoTextToVideoWithRef(ControlNode):
         compression_quality = self.get_parameter_value("compression_quality")
         person_generation = self.get_parameter_value("person_generation")
         enhance_prompt = self.get_parameter_value("enhance_prompt")
-        storage_uri = self.get_parameter_value("storage_uri")
+        google_cloud_storage_uri = self.get_parameter_value("google_cloud_storage_uri")
         num_videos = self.get_parameter_value("number_of_videos")
         location = self.get_parameter_value("location")
         reference_image_1 = self.get_parameter_value("reference_image_1")
@@ -616,9 +616,9 @@ class VeoTextToVideoWithRef(ControlNode):
             self._log("ERROR: At least one reference image is required.")
             return
 
-        # Validate storage_uri is required for lossless compression
-        if compression_quality == "lossless" and not storage_uri:
-            self._log("ERROR: storage_uri is required when compression_quality is set to 'lossless'.")
+        # Validate google_cloud_storage_uri is required for lossless compression
+        if compression_quality == "lossless" and not google_cloud_storage_uri:
+            self._log("ERROR: google_cloud_storage_uri is required when compression_quality is set to 'lossless'.")
             self._log("💡 Please provide a GCS bucket URI (e.g., gs://your-bucket/output-path).")
             return
 
@@ -731,9 +731,9 @@ class VeoTextToVideoWithRef(ControlNode):
             if not is_veo3 and enhance_prompt is not None:
                 config_kwargs["enhance_prompt"] = enhance_prompt
 
-            # Add storage_uri if provided
-            if storage_uri:
-                config_kwargs["output_gcs_uri"] = storage_uri
+            # Add google_cloud_storage_uri if provided
+            if google_cloud_storage_uri:
+                config_kwargs["output_gcs_uri"] = google_cloud_storage_uri
 
             # Add seed - SeedParameter handles randomization logic
             config_kwargs["seed"] = seed

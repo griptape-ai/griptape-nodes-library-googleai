@@ -241,7 +241,7 @@ class VeoImageToVideoGenerator(ControlNode):
 
         self.add_parameter(
             ParameterString(
-                name="storage_uri",
+                name="google_cloud_storage_uri",
                 tooltip="Optional GCS bucket URI for output storage (e.g., gs://bucket-name/path). Required when compression_quality is 'lossless'.",
                 default_value="",
                 placeholder_text="gs://your-bucket/output-path",
@@ -618,7 +618,7 @@ class VeoImageToVideoGenerator(ControlNode):
         person_generation = self.get_parameter_value("person_generation")
         enhance_prompt = self.get_parameter_value("enhance_prompt")
         resize_mode = self.get_parameter_value("resize_mode")
-        storage_uri = self.get_parameter_value("storage_uri")
+        google_cloud_storage_uri = self.get_parameter_value("google_cloud_storage_uri")
 
         self._seed_parameter.preprocess()
         seed = self._seed_parameter.get_seed()
@@ -669,9 +669,9 @@ class VeoImageToVideoGenerator(ControlNode):
             self._log("ERROR: 9:16 aspect ratio is not supported by veo-3.0-generate-preview model.")
             return
 
-        # Validate storage_uri is required for lossless compression
-        if compression_quality == "lossless" and not storage_uri:
-            self._log("ERROR: storage_uri is required when compression_quality is set to 'lossless'.")
+        # Validate google_cloud_storage_uri is required for lossless compression
+        if compression_quality == "lossless" and not google_cloud_storage_uri:
+            self._log("ERROR: google_cloud_storage_uri is required when compression_quality is set to 'lossless'.")
             self._log("💡 Please provide a GCS bucket URI (e.g., gs://your-bucket/output-path).")
             return
 
@@ -744,9 +744,9 @@ class VeoImageToVideoGenerator(ControlNode):
             if is_veo3 and resize_mode:
                 config_kwargs["resize_mode"] = resize_mode
 
-            # Add storage_uri if provided
-            if storage_uri:
-                config_kwargs["output_gcs_uri"] = storage_uri
+            # Add google_cloud_storage_uri if provided
+            if google_cloud_storage_uri:
+                config_kwargs["output_gcs_uri"] = google_cloud_storage_uri
 
             self._log(f"📦 Config kwargs: {config_kwargs}")
             config = GenerateVideosConfig(**config_kwargs)
