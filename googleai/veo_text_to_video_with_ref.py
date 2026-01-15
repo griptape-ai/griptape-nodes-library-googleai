@@ -39,6 +39,7 @@ MODEL_CAPABILITIES = {
     "veo-3.1-generate-preview": {
         "max_reference_images": 3,
         "supports_reference_type_choice": False,  # Only supports "asset"
+        "resolution_choices": ["720p", "1080p", "4k"],
         "duration_choices": [8],
         "duration_default": 8,
         "version": "veo3",
@@ -46,6 +47,7 @@ MODEL_CAPABILITIES = {
     "veo-2.0-generate-exp": {
         "max_reference_images": 1,  # Only first reference image
         "supports_reference_type_choice": True,  # Can choose "asset" or "style"
+        "resolution_choices": [],  # Veo 2.0 doesn't support resolution parameter
         "duration_choices": [5, 6, 7, 8],
         "duration_default": 8,
         "version": "veo2",
@@ -145,9 +147,9 @@ class VeoTextToVideoWithRef(ControlNode):
         self.add_parameter(
             ParameterString(
                 name="resolution",
-                tooltip="Resolution of the generated video.",
+                tooltip="Resolution of the generated video. Veo 3.1: 720p/1080p/4k. Not supported by Veo 2.0.",
                 default_value="720p",
-                traits={Options(choices=["720p", "1080p"])},
+                traits={Options(choices=["720p", "1080p", "4k"])},
                 allow_output=False,
             )
         )
@@ -276,10 +278,11 @@ class VeoTextToVideoWithRef(ControlNode):
         default_num_videos = self.get_parameter_value("number_of_videos") or 1
         self._update_video_output_visibility(default_num_videos)
 
-        # Initialize reference image visibility based on default model
+        # Initialize parameter visibility based on default model
         default_model = self.get_parameter_value("model") or MODELS[0]
         self._update_reference_image_visibility_for_model(default_model)
         self._update_generate_audio_visibility_for_model(default_model)
+        self._update_resolution_choices_for_model(default_model)
 
     def _update_reference_image_visibility_for_model(self, model: str) -> None:
         """Update reference image visibility based on the selected model."""
@@ -329,6 +332,24 @@ class VeoTextToVideoWithRef(ControlNode):
             # Set to default if current value is not in new choices
             self._update_option_choices("duration", capabilities["duration_choices"], capabilities["duration_default"])
 
+    def _update_resolution_choices_for_model(self, model: str) -> None:
+        """Update resolution choices based on the selected model (Veo 3.1 supports 4k, Veo 2.0 doesn't support resolution)."""
+        if model not in MODEL_CAPABILITIES:
+            return
+
+        capabilities = MODEL_CAPABILITIES[model]
+        resolution_choices = capabilities.get("resolution_choices", [])
+
+        if resolution_choices:
+            current_resolution = self.get_parameter_value("resolution") or "720p"
+            if current_resolution not in resolution_choices:
+                current_resolution = resolution_choices[0]
+            self._update_option_choices("resolution", resolution_choices, current_resolution)
+            self.show_parameter_by_name("resolution")
+        else:
+            # Model doesn't support resolution parameter - hide it
+            self.hide_parameter_by_name("resolution")
+
     def _update_video_output_visibility(self, num_videos: int) -> None:
         """Update video output parameter visibility based on number of videos."""
         # Always show video_1_1 (first video)
@@ -354,6 +375,7 @@ class VeoTextToVideoWithRef(ControlNode):
         """Handle parameter value changes."""
         if parameter.name == "model":
             self._update_duration_choices_for_model(value)
+            self._update_resolution_choices_for_model(value)
             self._update_reference_image_visibility_for_model(value)
             self._update_generate_audio_visibility_for_model(value)
         elif parameter.name == "number_of_videos":
@@ -675,10 +697,13 @@ class VeoTextToVideoWithRef(ControlNode):
             # Build config
             config_kwargs = {
                 "aspect_ratio": aspect_ratio,
-                "resolution": resolution,
                 "number_of_videos": num_videos,
                 "reference_images": reference_images,
             }
+
+            # Add resolution only for models that support it (Veo 3.1)
+            if capabilities.get("resolution_choices") and resolution:
+                config_kwargs["resolution"] = resolution
 
             # Add durationSeconds if provided
             if duration:
