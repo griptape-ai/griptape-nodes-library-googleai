@@ -3,7 +3,6 @@ import os
 import time
 from typing import Any
 
-import requests
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
@@ -13,6 +12,7 @@ from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
+from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
 # Attempt to import Google libraries
@@ -363,21 +363,18 @@ class VeoImageToVideoGenerator(ControlNode):
         if isinstance(image_artifact, ImageUrlArtifact):
             # Download image from URL
             self._log(f"📥 Downloading image from URL: {image_artifact.value}")
-            response = requests.get(image_artifact.value, timeout=30)
-            response.raise_for_status()
-            image_data = response.content
-
-            # Determine mime type from response headers
-            content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
-            # If MIME type is missing or generic, detect from bytes
-            if not content_type or content_type == "application/octet-stream":
-                mime_type = detect_image_mime_from_bytes(image_data) or "image/png"
-            elif "png" in content_type:
-                mime_type = "image/png"
-            elif "webp" in content_type:
-                mime_type = "image/webp"
+            result = File(image_artifact.value).read()
+            image_data = result.content if isinstance(result.content, bytes) else result.content.encode()
+            if result.mime_type and result.mime_type != "application/octet-stream":
+                content_type = result.mime_type.lower()
+                if "png" in content_type:
+                    mime_type = "image/png"
+                elif "webp" in content_type:
+                    mime_type = "image/webp"
+                else:
+                    mime_type = "image/jpeg"
             else:
-                mime_type = "image/jpeg"
+                mime_type = detect_image_mime_from_bytes(image_data) or "image/png"
 
         elif isinstance(image_artifact, ImageArtifact):
             # Handle ImageArtifact
