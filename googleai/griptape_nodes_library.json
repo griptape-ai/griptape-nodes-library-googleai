@@ -20,7 +20,7 @@
         "author": "Griptape",
         "description": "A Griptape Nodes library for interacting with Google AI services like Veo and Lyria.",
         "url": "www.griptape.ai",
-        "library_version": "0.2.3",
+        "library_version": "0.2.4",
         "engine_version": "0.66.0",
         "tags": [
             "Griptape",
@@ -117,6 +117,15 @@
                 "category": "image/googleai",
                 "description": "Generates images using Google's Gemini 3 Pro model (Nano Banana Pro). Supports both Vertex AI and AI Studio API.",
                 "display_name": "Nano Banana Pro Image Generator"
+            }
+        },
+        {
+            "class_name": "NanaBanana2ImageGenerator",
+            "file_path": "gemini_3_1_flash_image_generator.py",
+            "metadata": {
+                "category": "image/googleai",
+                "description": "Generates images using Google's Gemini 3.1 Flash model (Nano Banana 2). Supports both Vertex AI and AI Studio API.",
+                "display_name": "Nano Banana 2 Image Generator"
             }
         },
         {
