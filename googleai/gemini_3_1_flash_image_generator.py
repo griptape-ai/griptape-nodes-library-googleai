@@ -69,7 +69,7 @@ class NanaBanana2ImageGenerator(ControlNode):
     - Model: gemini-3.1-flash-image-preview (same model name for both APIs)
     - Supports up to 10 input images (≤ 7 MB each; png/jpeg/webp/heic/heif)
     - Uses genai.Client() SDK with response_modalities=['TEXT', 'IMAGE']
-    - Supports 512px, 1K, 2K, and 4K resolution
+    - Supports 0.5K (512), 1K, 2K, and 4K resolution
     - Supports Google Image Search grounding
     - Returns generated images as ImageUrlArtifact
     """
@@ -176,7 +176,7 @@ class NanaBanana2ImageGenerator(ControlNode):
                 type="str",
                 tooltip="Resolution for generated images.",
                 default_value="2K",
-                traits=[Options(choices=["512px", "1K", "2K", "4K"])],
+                traits=[Options(choices=["512", "1K", "2K", "4K"])],
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
@@ -566,13 +566,9 @@ class NanaBanana2ImageGenerator(ControlNode):
 
         # Set outputs
         if all_images:
+            self.parameter_output_values["image"] = all_images[0]
             self.parameter_output_values["images"] = all_images
-            if len(all_images) == 1:
-                self.parameter_output_values["image"] = all_images[0]
-                self._log("🖼️ Saved 1 image to both 'image' and 'images' outputs.")
-            else:
-                self.parameter_output_values["image"] = None
-                self._log(f"🖼️ Saved {len(all_images)} image(s) to 'images' output.")
+            self._log(f"🖼️ Saved {len(all_images)} image(s) to outputs.")
         else:
             self.parameter_output_values["image"] = None
             self.parameter_output_values["images"] = []
