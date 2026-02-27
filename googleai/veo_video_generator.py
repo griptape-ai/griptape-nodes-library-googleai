@@ -9,8 +9,8 @@ from griptape_nodes.exe_types.param_components.seed_parameter import SeedParamet
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 # Attempt to import Google libraries
@@ -162,6 +162,36 @@ class VeoVideoGenerator(ControlNode):
         )
 
         self.add_parameter(
+            ParameterString(
+                name="compression_quality",
+                tooltip="Video compression quality. 'lossless' provides higher quality but larger file size.",
+                default_value="optimized",
+                traits={Options(choices=["optimized", "lossless"])},
+                allow_output=False,
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
+                name="person_generation",
+                tooltip="Controls generation of people/faces. 'allow_all' requires Google allowlist approval.",
+                default_value="allow_adult",
+                traits={Options(choices=["allow_adult", "dont_allow", "allow_all"])},
+                allow_output=False,
+            )
+        )
+
+        self.add_parameter(
+            ParameterString(
+                name="google_cloud_storage_uri",
+                tooltip="Optional GCS bucket URI for output storage (e.g., gs://bucket-name/path). Required when compression_quality is 'lossless'.",
+                default_value="",
+                placeholder_text="gs://your-bucket/output-path",
+                allow_output=False,
+            )
+        )
+
+        self.add_parameter(
             ParameterInt(
                 name="number_of_videos",
                 tooltip="Number of videos to generate (sampleCount).",
@@ -280,23 +310,12 @@ class VeoVideoGenerator(ControlNode):
     def _update_video_output_visibility(self, num_videos: int) -> None:
         """Update video output parameter visibility based on number of videos."""
         # Always show video_1_1 (first video)
-        self.show_parameter_by_name("video_1_1")
+        self._set_parameter_visibility("video_1_1", visible=True)
 
         # Show/hide additional videos based on count
-        if num_videos >= 2:
-            self.show_parameter_by_name("video_1_2")
-        else:
-            self.hide_parameter_by_name("video_1_2")
-
-        if num_videos >= 3:
-            self.show_parameter_by_name("video_2_1")
-        else:
-            self.hide_parameter_by_name("video_2_1")
-
-        if num_videos >= 4:
-            self.show_parameter_by_name("video_2_2")
-        else:
-            self.hide_parameter_by_name("video_2_2")
+        self._set_parameter_visibility("video_1_2", visible=num_videos >= 2)
+        self._set_parameter_visibility("video_2_1", visible=num_videos >= 3)
+        self._set_parameter_visibility("video_2_2", visible=num_videos >= 4)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes."""
@@ -458,6 +477,9 @@ class VeoVideoGenerator(ControlNode):
         seed = self._seed_parameter.get_seed()
         duration = self.get_parameter_value("duration")
         generate_audio = self.get_parameter_value("generate_audio")
+        compression_quality = self.get_parameter_value("compression_quality")
+        person_generation = self.get_parameter_value("person_generation")
+        google_cloud_storage_uri = self.get_parameter_value("google_cloud_storage_uri")
         num_videos = self.get_parameter_value("number_of_videos")
         location = self.get_parameter_value("location")
 
@@ -471,6 +493,12 @@ class VeoVideoGenerator(ControlNode):
             self._log("ERROR: 9:16 aspect ratio is not supported by veo-3.0-generate-preview model.")
             return
 
+        # Validate google_cloud_storage_uri is required for lossless compression
+        if compression_quality == "lossless" and not google_cloud_storage_uri:
+            self._log("ERROR: google_cloud_storage_uri is required when compression_quality is set to 'lossless'.")
+            self._log("💡 Please provide a GCS bucket URI (e.g., gs://your-bucket/output-path).")
+            return
+
         try:
             # Use GoogleAuthHelper for authentication
             credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
@@ -482,9 +510,7 @@ class VeoVideoGenerator(ControlNode):
             aiplatform.init(project=final_project_id, location=location, credentials=credentials)
 
             self._log("Initializing Generative AI Client...")
-            client = genai.Client(
-                vertexai=True, project=final_project_id, location=location, credentials=credentials
-            )
+            client = genai.Client(vertexai=True, project=final_project_id, location=location, credentials=credentials)
 
             self._log(f"🎬 Generating video for prompt: '{prompt}'")
 
@@ -502,6 +528,18 @@ class VeoVideoGenerator(ControlNode):
             # Add generateAudio if provided (Veo 3 models only)
             if generate_audio:
                 config_kwargs["generate_audio"] = True
+
+            # Add compression quality if provided
+            if compression_quality:
+                config_kwargs["compression_quality"] = compression_quality
+
+            # Add person generation setting
+            if person_generation:
+                config_kwargs["person_generation"] = person_generation
+
+            # Add google_cloud_storage_uri if provided
+            if google_cloud_storage_uri:
+                config_kwargs["output_gcs_uri"] = google_cloud_storage_uri
 
             # Add seed - SeedParameter handles randomization logic
             config_kwargs["seed"] = seed
