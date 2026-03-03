@@ -3,8 +3,9 @@ import time
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.traits.button import Button
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -30,25 +31,31 @@ logger = logging.getLogger("griptape_nodes_library_googleai")
 
 # Only models that support reference images
 MODELS = [
-    "veo-3.1-generate-preview",
-    "veo-2.0-generate-exp",
+    "veo-3.1-generate-001",
 ]
+
+# Mapping of deprecated model names to their GA replacements.
+# When a workflow references one of these, the node auto-migrates and shows a notice.
+DEPRECATED_MODELS: dict[str, str] = {
+    "veo-3.1-generate-preview": "veo-3.1-generate-001",
+    "veo-3.1-fast-generate-preview": "veo-3.1-fast-generate-001",
+    "veo-3.0-generate-001": "veo-3.1-generate-001",
+    "veo-3.0-fast-generate-001": "veo-3.1-fast-generate-001",
+    "veo-3.0-generate-preview": "veo-3.1-generate-001",
+    "veo-3.0-fast-generate-preview": "veo-3.1-fast-generate-001",
+    "veo-2.0-generate-preview": "veo-3.1-generate-001",
+    "veo-2.0-generate-exp": "veo-3.1-generate-001",
+    "veo-2.0-generate-001": "veo-3.1-generate-001",
+}
 
 # Model capabilities configuration
 MODEL_CAPABILITIES = {
-    "veo-3.1-generate-preview": {
+    "veo-3.1-generate-001": {
         "max_reference_images": 3,
         "supports_reference_type_choice": False,  # Only supports "asset"
         "duration_choices": [8],
         "duration_default": 8,
         "version": "veo3",
-    },
-    "veo-2.0-generate-exp": {
-        "max_reference_images": 1,  # Only first reference image
-        "supports_reference_type_choice": True,  # Can choose "asset" or "style"
-        "duration_choices": [5, 6, 7, 8],
-        "duration_default": 8,
-        "version": "veo2",
     },
 }
 
@@ -96,11 +103,29 @@ class VeoTextToVideoWithRef(ControlNode):
             )
         )
 
-        # Reference type (for veo-2.0-generate-exp)
+        # Hidden deprecation notice — shown when a deprecated model is detected
+        self.add_node_element(
+            ParameterMessage(
+                name="model_deprecation_notice",
+                title="Model Deprecation Notice",
+                variant="info",
+                value="",
+                traits={
+                    Button(
+                        full_width=True,
+                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
+                    )
+                },
+                button_text="Dismiss",
+                hide=True,
+            )
+        )
+
+        # Reference type
         self.add_parameter(
             ParameterString(
                 name="reference_type",
-                tooltip="Type of reference image: 'asset' (up to 3 images for veo-3.1, 1 for veo-2.0) or 'style' (1 image only, veo-2.0 only).",
+                tooltip="Type of reference image: 'asset' (up to 3 images).",
                 default_value="asset",
                 traits={Options(choices=["asset", "style"])},
                 allow_output=False,
@@ -119,7 +144,7 @@ class VeoTextToVideoWithRef(ControlNode):
         self.add_parameter(
             ParameterImage(
                 name="reference_image_2",
-                tooltip="Second reference image (optional, veo-3.1-generate-preview only).",
+                tooltip="Second reference image (optional).",
                 allowed_modes={ParameterMode.INPUT},
             )
         )
@@ -127,7 +152,7 @@ class VeoTextToVideoWithRef(ControlNode):
         self.add_parameter(
             ParameterImage(
                 name="reference_image_3",
-                tooltip="Third reference image (optional, veo-3.1-generate-preview only).",
+                tooltip="Third reference image (optional).",
                 allowed_modes={ParameterMode.INPUT},
             )
         )
@@ -162,7 +187,7 @@ class VeoTextToVideoWithRef(ControlNode):
         self.add_parameter(
             ParameterInt(
                 name="duration",
-                tooltip="Duration of the generated video in seconds. Veo 2.0: 5-8 seconds. Veo 3.1: 4, 6, or 8 seconds.",
+                tooltip="Duration of the generated video in seconds.",
                 default_value=default_capabilities["duration_default"],
                 traits={Options(choices=default_capabilities["duration_choices"])},
                 allow_output=False,
@@ -294,11 +319,9 @@ class VeoTextToVideoWithRef(ControlNode):
 
         # Show/hide additional reference images based on max count
         if max_refs >= 3:
-            # veo-3.1-generate-preview: show all 3
             self.show_parameter_by_name("reference_image_2")
             self.show_parameter_by_name("reference_image_3")
         else:
-            # veo-2.0-generate-exp: only show first (max_refs = 1)
             self.hide_parameter_by_name("reference_image_2")
             self.hide_parameter_by_name("reference_image_3")
 
@@ -350,12 +373,30 @@ class VeoTextToVideoWithRef(ControlNode):
         else:
             self.hide_parameter_by_name("video_2_2")
 
+    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
+        """Auto-migrate deprecated models and show a deprecation notice."""
+        if parameter.name == "model" and value in DEPRECATED_MODELS:
+            replacement = DEPRECATED_MODELS[value]
+            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
+            if message is not None:
+                message.value = (
+                    f"The '{value}' model has been deprecated. "
+                    f"The model has been updated to '{replacement}'. "
+                    "Please save your workflow to apply this change."
+                )
+                self.show_message_by_name("model_deprecation_notice")
+            value = replacement
+
+        return super().before_value_set(parameter, value)
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes."""
         if parameter.name == "model":
             self._update_duration_choices_for_model(value)
             self._update_reference_image_visibility_for_model(value)
             self._update_generate_audio_visibility_for_model(value)
+            if value not in DEPRECATED_MODELS:
+                self.hide_message_by_name("model_deprecation_notice")
         elif parameter.name == "number_of_videos":
             self._update_video_output_visibility(value)
         self._seed_parameter.after_value_set(parameter, value)
@@ -620,16 +661,13 @@ class VeoTextToVideoWithRef(ControlNode):
 
             # Determine reference type
             if supports_type_choice:
-                # veo-2.0-generate-exp: use user's choice
                 ref_type = reference_type.lower()
                 if ref_type not in ["asset", "style"]:
-                    ref_type = "asset"  # Default to asset
-                # For style, only 1 image is allowed
+                    ref_type = "asset"
                 if ref_type == "style" and len(ref_image_list) > 1:
                     self._log("⚠️ Warning: Style reference type only supports 1 image. Using first image only.")
                     ref_image_list = ref_image_list[:1]
             else:
-                # veo-3.1: only supports "asset"
                 ref_type = "asset"
 
             self._log(f"🖼️ Processing {len(ref_image_list)} reference image(s) with type '{ref_type}'...")
