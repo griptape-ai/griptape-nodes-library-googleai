@@ -5,8 +5,9 @@ from typing import Any
 
 import requests
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.traits.button import Button
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
@@ -33,6 +34,20 @@ MODELS = [
     "veo-3.1-generate-001",
     "veo-3.1-fast-generate-001",
 ]
+
+# Mapping of deprecated model names to their GA replacements.
+# When a workflow references one of these, the node auto-migrates and shows a notice.
+DEPRECATED_MODELS: dict[str, str] = {
+    "veo-3.1-generate-preview": "veo-3.1-generate-001",
+    "veo-3.1-fast-generate-preview": "veo-3.1-fast-generate-001",
+    "veo-3.0-generate-001": "veo-3.1-generate-001",
+    "veo-3.0-fast-generate-001": "veo-3.1-fast-generate-001",
+    "veo-3.0-generate-preview": "veo-3.1-generate-001",
+    "veo-3.0-fast-generate-preview": "veo-3.1-fast-generate-001",
+    "veo-2.0-generate-preview": "veo-3.1-generate-001",
+    "veo-2.0-generate-exp": "veo-3.1-generate-001",
+    "veo-2.0-generate-001": "veo-3.1-generate-001",
+}
 
 # Model capabilities configuration
 # Maps model names to their supported features
@@ -113,6 +128,24 @@ class VeoImageToVideoGenerator(ControlNode):
                 allow_output=False,
             )
         )
+        # Hidden deprecation notice — shown when a deprecated model is detected
+        self.add_node_element(
+            ParameterMessage(
+                name="model_deprecation_notice",
+                title="Model Deprecation Notice",
+                variant="info",
+                value="",
+                traits={
+                    Button(
+                        full_width=True,
+                        on_click=lambda _, __: self.hide_message_by_name("model_deprecation_notice"),
+                    )
+                },
+                button_text="Dismiss",
+                hide=True,
+            )
+        )
+
         self.add_parameter(
             ParameterString(
                 name="aspect_ratio",
@@ -293,10 +326,28 @@ class VeoImageToVideoGenerator(ControlNode):
         else:
             self.hide_parameter_by_name("video_2_2")
 
+    def before_value_set(self, parameter: Parameter, value: Any) -> Any:
+        """Auto-migrate deprecated models and show a deprecation notice."""
+        if parameter.name == "model" and value in DEPRECATED_MODELS:
+            replacement = DEPRECATED_MODELS[value]
+            message = self.get_message_by_name_or_element_id("model_deprecation_notice")
+            if message is not None:
+                message.value = (
+                    f"The '{value}' model has been deprecated. "
+                    f"The model has been updated to '{replacement}'. "
+                    "Please save your workflow to apply this change."
+                )
+                self.show_message_by_name("model_deprecation_notice")
+            value = replacement
+
+        return super().before_value_set(parameter, value)
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "model":
             self._update_parameter_visibility_for_model(value)
             self.show_parameter_by_name("video_artifacts")
+            if value not in DEPRECATED_MODELS:
+                self.hide_message_by_name("model_deprecation_notice")
         elif parameter.name == "number_of_videos":
             self._update_video_output_visibility(value)
         self._seed_parameter.after_value_set(parameter, value)
