@@ -28,43 +28,19 @@ from googleai_utils import GoogleAuthHelper
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
 MODELS = [
-    "veo-3.1-generate-preview",
-    "veo-3.1-fast-generate-preview",
-    "veo-3.0-generate-001",
-    "veo-3.0-fast-generate-001",
-    "veo-3.0-generate-preview",
-    "veo-3.0-fast-generate-preview",
+    "veo-3.1-generate-001",
+    "veo-3.1-fast-generate-001",
 ]
 
 # Model capabilities configuration
 # Maps model names to their supported features
 MODEL_CAPABILITIES = {
-    "veo-3.1-generate-preview": {
+    "veo-3.1-generate-001": {
         "duration_choices": [8],
         "duration_default": 8,
         "version": "veo3",
     },
-    "veo-3.1-fast-generate-preview": {
-        "duration_choices": [4, 6, 8],
-        "duration_default": 8,
-        "version": "veo3",
-    },
-    "veo-3.0-generate-001": {
-        "duration_choices": [4, 6, 8],
-        "duration_default": 8,
-        "version": "veo3",
-    },
-    "veo-3.0-fast-generate-001": {
-        "duration_choices": [4, 6, 8],
-        "duration_default": 8,
-        "version": "veo3",
-    },
-    "veo-3.0-generate-preview": {
-        "duration_choices": [4, 6, 8],
-        "duration_default": 8,
-        "version": "veo3",
-    },
-    "veo-3.0-fast-generate-preview": {
+    "veo-3.1-fast-generate-001": {
         "duration_choices": [4, 6, 8],
         "duration_default": 8,
         "version": "veo3",
@@ -118,7 +94,7 @@ class VeoVideoGenerator(ControlNode):
         self.add_parameter(
             ParameterString(
                 name="aspect_ratio",
-                tooltip="Aspect ratio of the generated video. Note: 9:16 is not supported by veo-3.0-generate-preview.",
+                tooltip="Aspect ratio of the generated video.",
                 default_value="16:9",
                 traits={Options(choices=["16:9", "9:16"])},
                 allow_output=False,
@@ -145,7 +121,7 @@ class VeoVideoGenerator(ControlNode):
         self.add_parameter(
             ParameterInt(
                 name="duration",
-                tooltip="Duration of the generated video in seconds. Veo 2.0: 5-8 seconds. Veo 3.0: 4, 6, or 8 seconds.",
+                tooltip="Duration of the generated video in seconds.",
                 default_value=default_capabilities["duration_default"],
                 traits={Options(choices=default_capabilities["duration_choices"])},
                 allow_output=False,
@@ -464,11 +440,6 @@ class VeoVideoGenerator(ControlNode):
         # Validate inputs
         if not prompt:
             self._log("ERROR: Prompt is a required input.")
-            return
-
-        # Validate aspect ratio for specific models
-        if model == "veo-3.0-generate-preview" and aspect_ratio == "9:16":
-            self._log("ERROR: 9:16 aspect ratio is not supported by veo-3.0-generate-preview model.")
             return
 
         try:

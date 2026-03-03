@@ -30,25 +30,17 @@ logger = logging.getLogger("griptape_nodes_library_googleai")
 
 # Only models that support reference images
 MODELS = [
-    "veo-3.1-generate-preview",
-    "veo-2.0-generate-exp",
+    "veo-3.1-generate-001",
 ]
 
 # Model capabilities configuration
 MODEL_CAPABILITIES = {
-    "veo-3.1-generate-preview": {
+    "veo-3.1-generate-001": {
         "max_reference_images": 3,
         "supports_reference_type_choice": False,  # Only supports "asset"
         "duration_choices": [8],
         "duration_default": 8,
         "version": "veo3",
-    },
-    "veo-2.0-generate-exp": {
-        "max_reference_images": 1,  # Only first reference image
-        "supports_reference_type_choice": True,  # Can choose "asset" or "style"
-        "duration_choices": [5, 6, 7, 8],
-        "duration_default": 8,
-        "version": "veo2",
     },
 }
 
@@ -96,11 +88,11 @@ class VeoTextToVideoWithRef(ControlNode):
             )
         )
 
-        # Reference type (for veo-2.0-generate-exp)
+        # Reference type
         self.add_parameter(
             ParameterString(
                 name="reference_type",
-                tooltip="Type of reference image: 'asset' (up to 3 images for veo-3.1, 1 for veo-2.0) or 'style' (1 image only, veo-2.0 only).",
+                tooltip="Type of reference image: 'asset' (up to 3 images).",
                 default_value="asset",
                 traits={Options(choices=["asset", "style"])},
                 allow_output=False,
@@ -119,7 +111,7 @@ class VeoTextToVideoWithRef(ControlNode):
         self.add_parameter(
             ParameterImage(
                 name="reference_image_2",
-                tooltip="Second reference image (optional, veo-3.1-generate-preview only).",
+                tooltip="Second reference image (optional).",
                 allowed_modes={ParameterMode.INPUT},
             )
         )
@@ -127,7 +119,7 @@ class VeoTextToVideoWithRef(ControlNode):
         self.add_parameter(
             ParameterImage(
                 name="reference_image_3",
-                tooltip="Third reference image (optional, veo-3.1-generate-preview only).",
+                tooltip="Third reference image (optional).",
                 allowed_modes={ParameterMode.INPUT},
             )
         )
@@ -162,7 +154,7 @@ class VeoTextToVideoWithRef(ControlNode):
         self.add_parameter(
             ParameterInt(
                 name="duration",
-                tooltip="Duration of the generated video in seconds. Veo 2.0: 5-8 seconds. Veo 3.1: 4, 6, or 8 seconds.",
+                tooltip="Duration of the generated video in seconds.",
                 default_value=default_capabilities["duration_default"],
                 traits={Options(choices=default_capabilities["duration_choices"])},
                 allow_output=False,
@@ -294,11 +286,9 @@ class VeoTextToVideoWithRef(ControlNode):
 
         # Show/hide additional reference images based on max count
         if max_refs >= 3:
-            # veo-3.1-generate-preview: show all 3
             self.show_parameter_by_name("reference_image_2")
             self.show_parameter_by_name("reference_image_3")
         else:
-            # veo-2.0-generate-exp: only show first (max_refs = 1)
             self.hide_parameter_by_name("reference_image_2")
             self.hide_parameter_by_name("reference_image_3")
 
@@ -620,16 +610,13 @@ class VeoTextToVideoWithRef(ControlNode):
 
             # Determine reference type
             if supports_type_choice:
-                # veo-2.0-generate-exp: use user's choice
                 ref_type = reference_type.lower()
                 if ref_type not in ["asset", "style"]:
-                    ref_type = "asset"  # Default to asset
-                # For style, only 1 image is allowed
+                    ref_type = "asset"
                 if ref_type == "style" and len(ref_image_list) > 1:
                     self._log("⚠️ Warning: Style reference type only supports 1 image. Using first image only.")
                     ref_image_list = ref_image_list[:1]
             else:
-                # veo-3.1: only supports "asset"
                 ref_type = "asset"
 
             self._log(f"🖼️ Processing {len(ref_image_list)} reference image(s) with type '{ref_type}'...")

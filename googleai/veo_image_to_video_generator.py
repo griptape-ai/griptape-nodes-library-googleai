@@ -30,66 +30,26 @@ from googleai_utils import GoogleAuthHelper, detect_image_mime_from_bytes
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
 MODELS = [
-    "veo-3.1-fast-generate-preview",
-    "veo-3.1-generate-preview",
-    "veo-3.0-generate-001",
-    "veo-3.0-fast-generate-001",
-    "veo-2.0-generate-preview",
-    "veo-2.0-generate-exp",
-    "veo-2.0-generate-001",
+    "veo-3.1-generate-001",
+    "veo-3.1-fast-generate-001",
 ]
 
 # Model capabilities configuration
 # Maps model names to their supported features
 MODEL_CAPABILITIES = {
-    "veo-3.1-fast-generate-preview": {
+    "veo-3.1-generate-001": {
         "supports_last_frame": True,
         "supports_reference_images": True,
         "duration_choices": [4, 6, 8],
         "duration_default": 8,
         "version": "veo3",
     },
-    "veo-3.1-generate-preview": {
+    "veo-3.1-fast-generate-001": {
         "supports_last_frame": True,
         "supports_reference_images": True,
         "duration_choices": [4, 6, 8],
         "duration_default": 8,
         "version": "veo3",
-    },
-    "veo-3.0-generate-001": {
-        "supports_last_frame": False,
-        "supports_reference_images": False,
-        "duration_choices": [4, 6, 8],
-        "duration_default": 8,
-        "version": "veo3",
-    },
-    "veo-3.0-fast-generate-001": {
-        "supports_last_frame": False,
-        "supports_reference_images": False,
-        "duration_choices": [4, 6, 8],
-        "duration_default": 8,
-        "version": "veo3",
-    },
-    "veo-2.0-generate-preview": {
-        "supports_last_frame": False,
-        "supports_reference_images": False,
-        "duration_choices": [5, 6, 7, 8],
-        "duration_default": 8,
-        "version": "veo2",
-    },
-    "veo-2.0-generate-exp": {
-        "supports_last_frame": True,
-        "supports_reference_images": True,
-        "duration_choices": [5, 6, 7, 8],
-        "duration_default": 8,
-        "version": "veo2",
-    },
-    "veo-2.0-generate-001": {
-        "supports_last_frame": True,
-        "supports_reference_images": False,
-        "duration_choices": [5, 6, 7, 8],
-        "duration_default": 8,
-        "version": "veo2",
     },
 }
 
@@ -117,7 +77,7 @@ class VeoImageToVideoGenerator(ControlNode):
         self.add_parameter(
             ParameterImage(
                 name="last_frame",
-                tooltip="Optional: Final frame for interpolation (supported by veo-2.0-generate-001, veo-2.0-generate-exp, veo-3.1-generate-preview, veo-3.1-fast-generate-preview).",
+                tooltip="Optional: Final frame for interpolation (supported by models with supports_last_frame capability).",
                 ui_options={
                     "placeholder_text": "Optional last frame for interpolation",
                 },
@@ -148,7 +108,7 @@ class VeoImageToVideoGenerator(ControlNode):
             ParameterString(
                 name="model",
                 tooltip="The Veo model to use for generation.",
-                default_value=MODELS[1],
+                default_value=MODELS[0],
                 traits=[Options(choices=MODELS)],
                 allow_output=False,
             )
@@ -156,7 +116,7 @@ class VeoImageToVideoGenerator(ControlNode):
         self.add_parameter(
             ParameterString(
                 name="aspect_ratio",
-                tooltip="Aspect ratio of the generated video. Note: 9:16 is not supported by veo-3.0-generate-preview.",
+                tooltip="Aspect ratio of the generated video.",
                 default_value="16:9",
                 traits={Options(choices=["16:9", "9:16"])},
                 allow_output=False,
@@ -183,7 +143,7 @@ class VeoImageToVideoGenerator(ControlNode):
         self.add_parameter(
             ParameterInt(
                 name="duration",
-                tooltip="Duration of the generated video in seconds. Veo 2.0: 5-8 seconds. Veo 3.0: 4, 6, or 8 seconds.",
+                tooltip="Duration of the generated video in seconds.",
                 default_value=default_capabilities["duration_default"],
                 traits={Options(choices=default_capabilities["duration_choices"])},
                 allow_output=False,
@@ -615,11 +575,6 @@ class VeoImageToVideoGenerator(ControlNode):
             except Exception as e:
                 self._log(f"ERROR: Failed to convert last_frame dict to image artifact: {e}")
                 last_frame_artifact = None
-
-        # Validate aspect ratio for specific models
-        if model == "veo-3.0-generate-preview" and aspect_ratio == "9:16":
-            self._log("ERROR: 9:16 aspect ratio is not supported by veo-3.0-generate-preview model.")
-            return
 
         try:
             # Use GoogleAuthHelper for authentication
