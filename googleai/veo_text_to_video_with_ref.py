@@ -25,6 +25,7 @@ except ImportError:
     GOOGLE_INSTALLED = False
 
 from googleai_utils import GoogleAuthHelper, detect_image_mime_from_bytes
+from griptape_nodes.files.file import File, FileLoadError
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -378,27 +379,12 @@ class VeoTextToVideoWithRef(ControlNode):
         """Convert image artifact to base64 string and return base64 data and mime type."""
         self._log("🖼️ Converting image to base64...")
 
-        import requests
-
         # Get image data based on artifact type
         if isinstance(image_artifact, ImageUrlArtifact):
             # Download image from URL
             self._log(f"📥 Downloading image from URL: {image_artifact.value}")
-            response = requests.get(image_artifact.value, timeout=30)
-            response.raise_for_status()
-            image_data = response.content
-
-            # Determine mime type from response headers
-            content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
-            # If MIME type is missing or generic, detect from bytes
-            if not content_type or content_type == "application/octet-stream":
-                mime_type = detect_image_mime_from_bytes(image_data) or "image/png"
-            elif "png" in content_type:
-                mime_type = "image/png"
-            elif "webp" in content_type:
-                mime_type = "image/webp"
-            else:
-                mime_type = "image/jpeg"
+            image_data = File(image_artifact.value).read_bytes()
+            mime_type = detect_image_mime_from_bytes(image_data) or "image/png"
 
         elif isinstance(image_artifact, ImageArtifact):
             # Handle ImageArtifact
