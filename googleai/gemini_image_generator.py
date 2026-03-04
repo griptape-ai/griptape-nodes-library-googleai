@@ -15,13 +15,7 @@ from griptape_nodes.exe_types.param_types.parameter_string import ParameterStrin
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
 from griptape_nodes.traits.options import Options
-
-try:
-    import requests
-
-    REQUESTS_INSTALLED = True
-except Exception:
-    REQUESTS_INSTALLED = False
+from griptape_nodes.files.file import File, FileLoadError
 
 try:
     from google import genai
@@ -226,19 +220,8 @@ class GeminiImageGenerator(ControlNode):
 
     # ---- Artifact → (bytes, mime) helpers ----
     def _fetch_image_url_bytes(self, url: str) -> tuple[bytes, str]:
-        if not REQUESTS_INSTALLED:
-            raise RuntimeError("`requests` is required to fetch ImageUrlArtifact URLs.")
-        resp = requests.get(url, timeout=30)
-        resp.raise_for_status()
-        data = resp.content
-        mime = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
-
-        # If MIME type is missing or generic, detect from bytes
-        if not mime or mime == "application/octet-stream":
-            detected = detect_image_mime_from_bytes(data)
-            if detected:
-                mime = detected
-
+        data = File(url).read_bytes()
+        mime = detect_image_mime_from_bytes(data) or ""
         return data, mime
 
     def _image_artifact_to_bytes_mime(self, art: Any) -> tuple[bytes, str]:

@@ -23,6 +23,7 @@ except ImportError:
     GOOGLE_INSTALLED = False
 
 from googleai_utils import GoogleAuthHelper
+from griptape_nodes.files.file import File, FileLoadError
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -334,14 +335,8 @@ class BaseAnalyzeMedia(ControlNode):
 
         if source["type"] == "localhost_url":
             # Localhost URL - read file and upload to GCS
-            local_path = self._get_localhost_file_path(source["url"])
-
-            if not local_path.exists():
-                self._raise_file_not_found(local_path)
-
-            self._log(f"📁 Reading local file: {local_path}")
-            with local_path.open("rb") as f:
-                media_data = f.read()
+            self._log(f"📁 Reading local file: {source['url']}")
+            media_data = File(source["url"]).read_bytes()
 
             # Generate filename and upload to GCS
             content_hash = hashlib.md5(media_data).hexdigest()
