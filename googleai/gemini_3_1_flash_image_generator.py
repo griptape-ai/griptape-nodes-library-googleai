@@ -8,6 +8,7 @@ from googleai_utils import (
     validate_and_maybe_shrink_image,
 )
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
+from griptape_nodes.files.file import File
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
@@ -26,13 +27,6 @@ try:
     PIL_INSTALLED = True
 except Exception:
     PIL_INSTALLED = False
-
-try:
-    import requests
-
-    REQUESTS_INSTALLED = True
-except Exception:
-    REQUESTS_INSTALLED = False
 
 try:
     from google import genai
@@ -310,15 +304,8 @@ class NanaBanana2ImageGenerator(ControlNode):
             if not mime or mime == "application/octet-stream":
                 mime = detect_image_mime_from_bytes(image_bytes) or "image/png"
         elif isinstance(art, ImageUrlArtifact):
-            if not REQUESTS_INSTALLED:
-                raise RuntimeError("`requests` is required to fetch ImageUrlArtifact URLs.")
-            resp = requests.get(art.value, timeout=30)
-            resp.raise_for_status()
-            image_bytes = resp.content
-            mime = resp.headers.get("Content-Type", "").split(";")[0].strip().lower()
-            # If MIME type is missing or generic, detect from bytes
-            if not mime or mime == "application/octet-stream":
-                mime = detect_image_mime_from_bytes(image_bytes) or "image/png"
+            image_bytes = File(art.value).read_bytes()
+            mime = detect_image_mime_from_bytes(image_bytes) or "image/png"
         else:
             raise TypeError(f"Unsupported image artifact type: {type(art)}")
 
