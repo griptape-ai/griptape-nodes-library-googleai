@@ -23,6 +23,9 @@ griptape-nodes = { git = "https://github.com/griptape-ai/griptape-nodes", rev="l
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[dependency-groups]
+dev = ["pyright>=1.1.396", "pytest-asyncio>=0.21.0", "ruff>=0.8.0", "pytest"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py312"
@@ -48,5 +51,21 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
 
-[dependency-groups]
-dev = ["ruff>=0.8.0"]
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+include = ["."]
+exclude = [".venv", "**/node_modules", "**/__pycache__", "**/.*", "templates"]
+pythonVersion = "3.12"
+reportIncompatibleMethodOverride = false
+reportMissingImports = false
+reportMissingModuleSource = false
+reportAttributeAccessIssue = false
+reportArgumentType = false
+reportGeneralTypeIssues = false
+reportPossiblyUnboundVariable = false
+reportCallIssue = false
+reportOptionalMemberAccess = false
+reportIndexIssue = false
+reportOperatorIssue = false
+reportReturnType = false

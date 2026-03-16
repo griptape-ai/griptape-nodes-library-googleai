@@ -23,7 +23,7 @@ except ImportError:
     GOOGLE_INSTALLED = False
 
 from googleai_utils import GoogleAuthHelper
-from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.files.file import File
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -443,9 +443,7 @@ class BaseAnalyzeMedia(ControlNode):
             aiplatform.init(project=final_project_id, location=location, credentials=credentials)
 
             self._log("Initializing Generative AI Client...")
-            client = genai.Client(
-                vertexai=True, project=final_project_id, location=location, credentials=credentials
-            )
+            client = genai.Client(vertexai=True, project=final_project_id, location=location, credentials=credentials)
 
             # Log client configuration for debugging
             self._log(f"🔍 Client configured with project: {final_project_id}")
