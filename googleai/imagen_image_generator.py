@@ -1,16 +1,15 @@
 import logging
-import time
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
 from griptape_nodes.traits.options import Options
 
 try:
@@ -205,6 +204,9 @@ class VertexAIImageGenerator(ControlNode):
         logs_group.ui_options = {"hide": True}  # Hide the logs group by default.
         self.add_node_element(logs_group)
 
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="imagen_image.jpeg")
+        self._output_file.add_parameter()
+
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes."""
         self._seed_parameter.after_value_set(parameter, value)
@@ -242,20 +244,10 @@ class VertexAIImageGenerator(ControlNode):
         return blob.download_as_bytes()
 
     def _create_image_artifact(self, image_bytes: bytes, output_format: str) -> ImageUrlArtifact:
-        """Create ImageUrlArtifact using StaticFilesManager for efficient storage."""
+        """Create ImageUrlArtifact using project-aware file saving."""
         try:
-            # Generate unique filename with timestamp and hash
-            import hashlib
-
-            timestamp = int(time.time() * 1000)  # milliseconds for uniqueness
-            content_hash = hashlib.md5(image_bytes).hexdigest()[:8]  # Short hash of content
-            file_extension = output_format.lower().split("/")[1]
-            filename = f"VertexAIImageGenerator_{timestamp}_{content_hash}.{file_extension}"
-
-            # Save to managed file location and get URL
-            static_url = GriptapeNodes.StaticFilesManager().save_static_file(image_bytes, filename, ExistingFilePolicy.CREATE_NEW)
-
-            return ImageUrlArtifact(value=static_url, name=f"text_to_image_{timestamp}")
+            saved = self._output_file.build_file().write_bytes(image_bytes)
+            return ImageUrlArtifact(value=saved.location, name=saved.location)
         except Exception as e:
             raise ValueError(f"Failed to create image artifact: {e!s}") from e
 

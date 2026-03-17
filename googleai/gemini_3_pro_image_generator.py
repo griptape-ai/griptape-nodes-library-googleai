@@ -1,5 +1,4 @@
 import logging
-import time
 from typing import Any
 
 from googleai_utils import (
@@ -12,7 +11,7 @@ from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, Param
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 from griptape_nodes.files.file import File, FileLoadError
@@ -253,6 +252,9 @@ class NanoBananaProImageGenerator(ControlNode):
             )
         self.add_node_element(logs_group)
 
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="gemini_3_pro_image.png")
+        self._output_file.add_parameter()
+
         # Ensure outputs are clean on (re)initialization
         self._reset_outputs()
 
@@ -280,18 +282,8 @@ class NanoBananaProImageGenerator(ControlNode):
             pass
 
     def _create_image_artifact(self, image_bytes: bytes, mime_type: str) -> ImageUrlArtifact:
-        import hashlib
-
-        timestamp = int(time.time() * 1000)
-        content_hash = hashlib.md5(image_bytes).hexdigest()[:8]
-        ext = {
-            "image/png": "png",
-            "image/jpeg": "jpg",
-            "image/webp": "webp",
-        }.get(mime_type, "png")
-        filename = f"Gemini3ProImage_{timestamp}_{content_hash}.{ext}"
-        static_url = GriptapeNodes.StaticFilesManager().save_static_file(image_bytes, filename, ExistingFilePolicy.CREATE_NEW)
-        return ImageUrlArtifact(value=static_url, name=f"gemini_3_pro_image_{timestamp}")
+        saved = self._output_file.build_file().write_bytes(image_bytes)
+        return ImageUrlArtifact(value=saved.location, name=saved.location)
 
     def _image_artifact_to_pil_image(
         self, art: Any, suggested_name: str = None, auto_image_resize: bool = True
