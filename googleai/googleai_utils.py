@@ -355,3 +355,11 @@ def shrink_image_to_limit(
         _log(f"Downscale failed: {e}")
     _log("Returning original image bytes after downscale attempts")
     return image_bytes, mime_type
+
+
+def explicit_image_generation_prompt(prompt: str | None) -> str | None:
+    """Ensure prompt explicitly requests an image response when using multimodal generation models."""
+    if prompt is None:
+        return None
+
+    return f"Generate the following image(s): {prompt}"

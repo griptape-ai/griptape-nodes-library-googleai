@@ -5,7 +5,7 @@ from typing import Any
 from googleai_utils import (
     GoogleAuthHelper,
     detect_image_mime_from_bytes,
-    validate_and_maybe_shrink_image,
+    validate_and_maybe_shrink_image, explicit_image_generation_prompt,
 )
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.files.file import File
@@ -656,7 +656,7 @@ class NanaBanana2ImageGenerator(ControlNode):
             self._generate_and_process(
                 client=client,
                 model=model,
-                prompt=prompt,
+                prompt=explicit_image_generation_prompt(prompt),
                 input_images=reference_images,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
