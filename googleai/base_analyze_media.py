@@ -267,15 +267,6 @@ class BaseAnalyzeMedia(ControlNode):
         # Direct bytes or other format
         return media_artifact.value
 
-    def _get_localhost_file_path(self, url: str) -> Path:
-        """Convert localhost URL to local file path."""
-        parsed_url = urllib.parse.urlparse(url)
-        filename = parsed_url.path.split("/")[-1].split("?")[0]  # Remove query params
-        static_files_path = GriptapeNodes.StaticFilesManager()._get_static_files_directory()
-        full_path = GriptapeNodes.ConfigManager().workspace_path / static_files_path
-
-        return full_path / filename
-
     def _generate_filename(self, media_artifact: any, content_hash: str) -> str:
         """Generate filename with original name + content hash."""
         if hasattr(media_artifact, "value") and isinstance(media_artifact.value, str):

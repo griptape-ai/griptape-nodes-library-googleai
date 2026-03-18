@@ -7,12 +7,12 @@ from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.traits.button import Button
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-from griptape_nodes.retained_mode.events.os_events import ExistingFilePolicy
 from griptape_nodes.files.file import File, FileLoadError
 from griptape_nodes.traits.options import Options
 
@@ -277,6 +277,9 @@ class VeoImageToVideoGenerator(ControlNode):
         logs_group.ui_options = {"collapsed": True}
         self.add_node_element(logs_group)
 
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="veo_image_to_video.mp4")
+        self._output_file.add_parameter()
+
         # Initialize parameter visibility based on default model
         self._update_parameter_visibility_for_model(default_model)
 
@@ -514,15 +517,13 @@ class VeoImageToVideoGenerator(ControlNode):
                         self._log(f"❌ Failed to download file handle for video {i + 1}: {e}")
 
                 if video_bytes:
-                    filename = f"veo_image_to_video_{int(time.time())}_{i + 1}.mp4"
-                    self._log(f"Saving video bytes to static storage as {filename}...")
+                    self._log(f"Saving video {i + 1} bytes to project storage...")
 
-                    static_files_manager = GriptapeNodes.StaticFilesManager()
-                    url = static_files_manager.save_static_file(video_bytes, filename, ExistingFilePolicy.CREATE_NEW)
+                    saved = self._output_file.build_file().write_bytes(video_bytes)
 
-                    url_artifact = VideoUrlArtifact(value=url, name=filename)
+                    url_artifact = VideoUrlArtifact(value=saved.location, name=saved.location)
                     video_artifacts.append(url_artifact)
-                    self._log(f"✅ Video {i + 1} saved. URL: {url}")
+                    self._log(f"✅ Video {i + 1} saved. URL: {saved.location}")
                 else:
                     self._log(f"❌ Could not retrieve video data for video {i + 1}.")
 
