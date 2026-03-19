@@ -7,12 +7,12 @@ from googleai_utils import (
     validate_and_maybe_shrink_image,
 )
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
-from griptape_nodes.files.file import File
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
@@ -158,7 +158,26 @@ class NanaBanana2ImageGenerator(ControlNode):
                 type="str",
                 tooltip="Aspect ratio for generated images.",
                 default_value="16:9",
-                traits=[Options(choices=["1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"])],
+                traits=[
+                    Options(
+                        choices=[
+                            "1:1",
+                            "1:4",
+                            "1:8",
+                            "2:3",
+                            "3:2",
+                            "3:4",
+                            "4:1",
+                            "4:3",
+                            "4:5",
+                            "5:4",
+                            "8:1",
+                            "9:16",
+                            "16:9",
+                            "21:9",
+                        ]
+                    )
+                ],
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
         )
@@ -242,7 +261,9 @@ class NanaBanana2ImageGenerator(ControlNode):
             )
         self.add_node_element(logs_group)
 
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="gemini_3_1_flash_image.png")
+        self._output_file = ProjectFileParameter(
+            node=self, name="output_file", default_filename="gemini_3_1_flash_image.png"
+        )
         self._output_file.add_parameter()
 
         # Ensure outputs are clean on (re)initialization
@@ -640,9 +661,7 @@ class NanaBanana2ImageGenerator(ControlNode):
                 aiplatform.init(project=project_id, location=location, credentials=credentials)
 
                 self._log("Initializing Generative AI Client (Vertex AI)...")
-                client = genai.Client(
-                    vertexai=True, project=project_id, location=location, credentials=credentials
-                )
+                client = genai.Client(vertexai=True, project=project_id, location=location, credentials=credentials)
 
             self._log("🚀 Starting Gemini 3.1 Flash image generation...")
             self._generate_and_process(

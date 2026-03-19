@@ -9,12 +9,12 @@ from googleai_utils import (
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
-from griptape_nodes.files.file import File, FileLoadError
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -252,7 +252,9 @@ class NanoBananaProImageGenerator(ControlNode):
             )
         self.add_node_element(logs_group)
 
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="gemini_3_pro_image.png")
+        self._output_file = ProjectFileParameter(
+            node=self, name="output_file", default_filename="gemini_3_pro_image.png"
+        )
         self._output_file.add_parameter()
 
         # Ensure outputs are clean on (re)initialization
@@ -654,9 +656,7 @@ class NanoBananaProImageGenerator(ControlNode):
                 aiplatform.init(project=project_id, location=location, credentials=credentials)
 
                 self._log("Initializing Generative AI Client (Vertex AI)...")
-                client = genai.Client(
-                    vertexai=True, project=project_id, location=location, credentials=credentials
-                )
+                client = genai.Client(vertexai=True, project=project_id, location=location, credentials=credentials)
 
             self._log("🚀 Starting Gemini 3 Pro image generation...")
             self._generate_and_process(

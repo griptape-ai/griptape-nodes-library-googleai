@@ -12,9 +12,9 @@ from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
+from griptape_nodes.files.file import File
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
-from griptape_nodes.files.file import File, FileLoadError
 
 try:
     from google import genai
@@ -435,9 +435,7 @@ class GeminiImageGenerator(ControlNode):
             aiplatform.init(project=project_id, location=location, credentials=credentials)
 
             self._log("Initializing Generative AI Client (Vertex AI)...")
-            client = genai.Client(
-                vertexai=True, project=project_id, location=location, credentials=credentials
-            )
+            client = genai.Client(vertexai=True, project=project_id, location=location, credentials=credentials)
 
             self._log("🚀 Starting Gemini image generation...")
             self._generate_and_process(

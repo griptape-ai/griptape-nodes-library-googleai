@@ -5,13 +5,13 @@ from typing import Any, ClassVar
 from griptape.artifacts import VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
-from griptape_nodes.traits.button import Button
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
 # Attempt to import Google libraries
@@ -505,9 +505,7 @@ class VeoVideoGenerator(ControlNode):
             aiplatform.init(project=final_project_id, location=location, credentials=credentials)
 
             self._log("Initializing Generative AI Client...")
-            client = genai.Client(
-                vertexai=True, project=final_project_id, location=location, credentials=credentials
-            )
+            client = genai.Client(vertexai=True, project=final_project_id, location=location, credentials=credentials)
 
             self._log(f"🎬 Generating video for prompt: '{prompt}'")
 

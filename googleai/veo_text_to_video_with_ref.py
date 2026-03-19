@@ -5,7 +5,6 @@ from typing import Any, ClassVar
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
-from griptape_nodes.traits.button import Button
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_bool import ParameterBool
@@ -13,6 +12,7 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
 # Attempt to import Google libraries
@@ -26,7 +26,7 @@ except ImportError:
     GOOGLE_INSTALLED = False
 
 from googleai_utils import GoogleAuthHelper, detect_image_mime_from_bytes
-from griptape_nodes.files.file import File, FileLoadError
+from griptape_nodes.files.file import File
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -298,7 +298,9 @@ class VeoTextToVideoWithRef(ControlNode):
         logs_group.ui_options = {"collapsed": True}
         self.add_node_element(logs_group)
 
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="veo_text_to_video.mp4")
+        self._output_file = ProjectFileParameter(
+            node=self, name="output_file", default_filename="veo_text_to_video.mp4"
+        )
         self._output_file.add_parameter()
 
         # Initialize video output visibility based on default number of videos
@@ -629,9 +631,7 @@ class VeoTextToVideoWithRef(ControlNode):
             aiplatform.init(project=final_project_id, location=location, credentials=credentials)
 
             self._log("Initializing Generative AI Client...")
-            client = genai.Client(
-                vertexai=True, project=final_project_id, location=location, credentials=credentials
-            )
+            client = genai.Client(vertexai=True, project=final_project_id, location=location, credentials=credentials)
 
             # Process reference images
             reference_images = []
