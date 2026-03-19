@@ -8,7 +8,6 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
@@ -364,9 +363,7 @@ class VertexAIImageGenerator(ControlNode):
             aiplatform.init(project=final_project_id, location=location, credentials=credentials)
 
             self._log("Initializing Generative AI Client...")
-            client = genai.Client(
-                vertexai=True, project=final_project_id, location=location, credentials=credentials
-            )
+            client = genai.Client(vertexai=True, project=final_project_id, location=location, credentials=credentials)
 
             self._log("Starting image generation...\n")
 

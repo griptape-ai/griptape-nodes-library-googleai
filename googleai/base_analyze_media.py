@@ -1,7 +1,6 @@
 import base64
 import json
 import logging
-import urllib.parse
 from pathlib import Path
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
