@@ -1,3 +1,5 @@
+SHELL := /bin/bash
+
 LIBRARY_JSON := googleai/griptape_nodes_library.json
 
 .PHONY: version/get
