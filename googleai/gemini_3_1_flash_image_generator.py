@@ -59,7 +59,7 @@ class NanaBanana2ImageGenerator(ControlNode):
     """Nano Banana 2 image generation node (Gemini 3.1 Flash).
 
     Supports both Vertex AI and Google AI Studio API:
-    - Model: gemini-3.1-flash-image-preview (same model name for both APIs)
+    - Model: gemini-3.1-flash-image (same model name for both APIs)
     - Supports up to 10 input images (≤ 7 MB each; png/jpeg/webp/heic/heif)
     - Uses genai.Client() SDK with response_modalities=['TEXT', 'IMAGE']
     - Supports 0.5K (512), 1K, 2K, and 4K resolution
@@ -625,7 +625,7 @@ class NanaBanana2ImageGenerator(ControlNode):
             reference_images = [reference_images]
 
         # Model name is the same for both APIs
-        model = "gemini-3.1-flash-image-preview"
+        model = "gemini-3.1-flash-image"
 
         self._log(f"📡 Using API provider: {api_provider}")
         self._log(f"🤖 Model: {model}")
