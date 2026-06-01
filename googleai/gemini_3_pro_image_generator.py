@@ -59,7 +59,7 @@ class NanoBananaProImageGenerator(ControlNode):
     """Nano Banana Pro image generation node (Gemini 3 Pro).
 
     Supports both Vertex AI and Google AI Studio API:
-    - Model: gemini-3-pro-image-preview (same model name for both APIs)
+    - Model: gemini-3-pro-image (same model name for both APIs)
     - Supports up to 14 input images (≤ 7 MB each; png/jpeg/webp/heic/heif)
     - Uses genai.Client() SDK with response_modalities=['TEXT', 'IMAGE']
     - Supports 1K, 2K, and 4K resolution
@@ -620,7 +620,7 @@ class NanoBananaProImageGenerator(ControlNode):
         all_images = reference_images + object_images + human_images
 
         # Model name is the same for both APIs
-        model = "gemini-3-pro-image-preview"
+        model = "gemini-3-pro-image"
 
         self._log(f"📡 Using API provider: {api_provider}")
         self._log(f"🤖 Model: {model}")
