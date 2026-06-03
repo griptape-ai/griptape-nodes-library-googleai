@@ -180,7 +180,7 @@ class BaseAnalyzeMedia(ControlNode):
             self._log(msg)
             raise FileNotFoundError(msg)
 
-        with Path(service_account_file).open() as f:
+        with Path(service_account_file).open(encoding="utf-8") as f:
             service_account_info = json.load(f)
 
         project_id = service_account_info.get("project_id")
