@@ -118,7 +118,7 @@ class GoogleAuthHelper:
 
                 # Try to extract project_id from config
                 try:
-                    with open(workload_identity_config) as f:
+                    with open(workload_identity_config, encoding="utf-8") as f:
                         config = json.load(f)
                         # Try to extract from service account impersonation email
                         if "service_account_impersonation" in config:
@@ -150,7 +150,7 @@ class GoogleAuthHelper:
         if service_account_file and os.path.exists(service_account_file):
             _log("🔑 Using service account file for authentication.")
             try:
-                with open(service_account_file) as f:
+                with open(service_account_file, encoding="utf-8") as f:
                     sa_data = json.load(f)
                     final_project_id = sa_data.get("project_id")
 
