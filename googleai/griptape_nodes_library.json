@@ -34,9 +34,9 @@
         "dependencies": {
             "pip_dependencies": [
                 "google-auth>=2.0.0",
-                "google-cloud-aiplatform>=1.0.0",
                 "google-cloud-storage>=2.19.0",
-                "google-genai>=1.40.0",
+                "google-cloud-aiplatform>=1.0.0",
+                "google-genai>=2.10.0",
                 "requests>=2.32.3"
             ]
         }
@@ -138,6 +138,15 @@
             }
         },
         {
+            "class_name": "GeminiOmniFlashVideoGenerator",
+            "file_path": "gemini_omni_flash_generator.py",
+            "metadata": {
+                "category": "video/googleai",
+                "description": "Generates short 720p video from text (and an optional image) using Google's Gemini Omni Flash model.",
+                "display_name": "Gemini Omni Flash"
+            }
+        },
+        {
             "class_name": "VeoImageToVideoGenerator",
             "file_path": "veo_image_to_video_generator.py",
             "metadata": {
@@ -209,6 +218,5 @@
     ],
     "workflows": [
         "workflows/templates/google_veo_frog_with_teeth.py"
-      ]
-    
+    ]
 }
