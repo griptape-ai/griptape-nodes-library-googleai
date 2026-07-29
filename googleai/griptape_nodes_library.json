@@ -142,7 +142,7 @@
             "file_path": "gemini_omni_flash_generator.py",
             "metadata": {
                 "category": "video/googleai",
-                "description": "Generates short 720p video from text (and an optional image) using Google's Gemini Omni Flash model.",
+                "description": "Generates short 720p video from text, an optional starting frame, or a set of reference images using Google's Gemini Omni Flash model.",
                 "display_name": "Gemini Omni Flash"
             }
         },

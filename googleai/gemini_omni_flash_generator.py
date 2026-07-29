@@ -9,7 +9,7 @@ from googleai_utils import (
     validate_and_maybe_shrink_image,
 )
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
@@ -41,6 +41,7 @@ VERTEX_LOCATION = "global"
 # Task values for the interactions video_config.
 TASK_TEXT_TO_VIDEO = "text_to_video"
 TASK_IMAGE_TO_VIDEO = "image_to_video"
+TASK_REFERENCE_TO_VIDEO = "reference_to_video"
 
 # Terminal interaction statuses (the API also reports in_progress / requires_action).
 TERMINAL_STATUSES = {"completed", "failed", "cancelled", "incomplete"}
@@ -57,9 +58,11 @@ POLL_INTERVAL_SECONDS = 10
 class GeminiOmniFlashVideoGenerator(ControlNode):
     """Generate a video with Google's Gemini Omni Flash model via the native Google AI SDK.
 
-    Gemini Omni Flash turns a text prompt (and an optional image) into a short, 720p
-    video with audio using the Gemini Interactions API (client.interactions). The
-    interaction runs in the background and is polled until it reaches a terminal state.
+    Gemini Omni Flash turns a text prompt (and optionally a starting frame or a set of
+    reference images) into a short, 720p video with audio using the Gemini Interactions API
+    (client.interactions). The interaction runs in the background and is polled until it
+    reaches a terminal state. Reference roles are assigned by prompt tags such as
+    <IMAGE_REF_0>; audio references are not supported by this model.
 
     Supports both auth surfaces: Vertex AI (default, service-account credentials) and
     the AI Studio API (GOOGLE_API_KEY). Google documents Omni on the AI Studio surface;
@@ -98,9 +101,25 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
         )
 
         self.add_parameter(
+            ParameterList(
+                name="reference_images",
+                input_types=["ImageUrlArtifact", "ImageArtifact"],
+                default_value=[],
+                tooltip=(
+                    "Optional reference images. When any are provided the model runs "
+                    "reference-to-video and 'image' is ignored. Refer to them in the prompt as "
+                    "<IMAGE_REF_0>, <IMAGE_REF_1>, and so on (zero-indexed) to control how each "
+                    "one is used. Audio references are not supported by this model."
+                ),
+                allowed_modes={ParameterMode.INPUT},
+                ui_options={"display_name": "reference images", "expander": True, "hide_property": True},
+            )
+        )
+
+        self.add_parameter(
             ParameterImage(
                 name="image",
-                tooltip="Optional input image. When provided, the model runs image-to-video.",
+                tooltip="Optional starting frame. When provided, the model runs image-to-video.",
                 allowed_modes={ParameterMode.INPUT},
                 default_value=None,
                 allow_output=False,
@@ -218,6 +237,7 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
         prompt = self.get_parameter_value("prompt")
         aspect_ratio = self.get_parameter_value("aspect_ratio") or "16:9"
         image = self.get_parameter_value("image")
+        reference_images = self.get_parameter_list_value("reference_images")
 
         if not prompt:
             self._log("ERROR: Prompt is a required input.")
@@ -226,11 +246,24 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
         try:
             client = self._build_client(api_provider)
 
-            # Build the interactions `input`: a plain prompt for text-to-video, or a
-            # list of content items (image + text) for image-to-video.
-            if image:
+            # Build the interactions `input`: a plain prompt for text-to-video, or a list of
+            # content items (images + text). Reference images and a starting frame mean different
+            # things to the model, so they select different tasks rather than combining.
+            if reference_images:
+                if image:
+                    self._log(
+                        "WARNING: Both 'image' and 'reference_images' were provided. Using "
+                        "reference_images (reference-to-video) and ignoring 'image'."
+                    )
+                reference_items = []
+                for reference in reference_images:
+                    reference_b64, reference_mime = self._image_to_base64(reference)
+                    reference_items.append({"type": "image", "data": reference_b64, "mime_type": reference_mime})
+                model_input: Any = [*reference_items, {"type": "text", "text": prompt}]
+                task = TASK_REFERENCE_TO_VIDEO
+            elif image:
                 image_b64, mime_type = self._image_to_base64(image)
-                model_input: Any = [
+                model_input = [
                     {"type": "image", "data": image_b64, "mime_type": mime_type},
                     {"type": "text", "text": prompt},
                 ]
