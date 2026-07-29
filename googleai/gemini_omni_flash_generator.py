@@ -10,7 +10,7 @@ from googleai_utils import (
 )
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
-from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -78,6 +78,10 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
         self.category = "Google AI"
         self.description = "Generates videos using Google's Gemini Omni Flash model."
 
+        # Tracked from the connection hooks; there is no public API to query a parameter's
+        # incoming connections, and the deprecated `image` stays visible while one exists.
+        self._legacy_image_connected = False
+
         # Auth provider selection
         self.add_parameter(
             ParameterString(
@@ -116,13 +120,17 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
             )
         )
 
+        # Superseded by reference_images. Kept so workflows saved against it still load (renaming
+        # a parameter breaks both its saved value and its saved connection on load), but hidden
+        # unless a workflow actually uses it. See _update_legacy_image_visibility.
         self.add_parameter(
             ParameterImage(
                 name="image",
-                tooltip="Optional starting frame. When provided, the model runs image-to-video.",
+                tooltip="Deprecated: use 'reference images' instead. When set, the model runs image-to-video.",
                 allowed_modes={ParameterMode.INPUT},
                 default_value=None,
                 allow_output=False,
+                ui_options={"display_name": "image (deprecated)"},
             )
         )
 
@@ -163,6 +171,47 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
             node=self, name="output_file", default_filename="gemini_omni_flash_video.mp4"
         )
         self._output_file.add_parameter()
+
+        self._update_legacy_image_visibility()
+
+    def after_incoming_connection(
+        self,
+        source_node: BaseNode,
+        source_parameter: Parameter,
+        target_parameter: Parameter,
+    ) -> None:
+        if target_parameter.name == "image":
+            self._legacy_image_connected = True
+            self._update_legacy_image_visibility()
+        return super().after_incoming_connection(source_node, source_parameter, target_parameter)
+
+    def after_incoming_connection_removed(
+        self,
+        source_node: BaseNode,
+        source_parameter: Parameter,
+        target_parameter: Parameter,
+    ) -> None:
+        if target_parameter.name == "image":
+            self._legacy_image_connected = False
+            self._update_legacy_image_visibility()
+        return super().after_incoming_connection_removed(source_node, source_parameter, target_parameter)
+
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        if parameter.name == "image":
+            self._update_legacy_image_visibility()
+        return super().after_value_set(parameter, value)
+
+    def _update_legacy_image_visibility(self) -> None:
+        """Show the deprecated `image` parameter only while a workflow still uses it.
+
+        New graphs never see it; graphs saved before `reference_images` existed keep working and
+        can still see what they are wired to.
+        """
+        in_use = bool(self.get_parameter_value("image")) or self._legacy_image_connected
+        if in_use:
+            self.show_parameter_by_name("image")
+        else:
+            self.hide_parameter_by_name("image")
 
     def _log(self, message: str) -> None:
         """Append a message to the logs output parameter."""
