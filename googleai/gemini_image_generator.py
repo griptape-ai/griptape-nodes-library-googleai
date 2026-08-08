@@ -25,7 +25,8 @@ try:
 except ImportError:
     GOOGLE_INSTALLED = False
 
-from googleai_utils import GoogleAuthHelper, detect_image_mime_from_bytes, validate_and_maybe_shrink_image
+from googleai_utils import GoogleAuthHelper, detect_image_mime_from_bytes, validate_and_maybe_shrink_image, \
+    explicit_image_generation_prompt
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
@@ -441,7 +442,7 @@ class GeminiImageGenerator(ControlNode):
             self._generate_and_process(
                 client=client,
                 model=model,
-                prompt=prompt,
+                prompt=explicit_image_generation_prompt(prompt),
                 input_images=input_images,
                 input_files=input_files,
                 temperature=temperature,
