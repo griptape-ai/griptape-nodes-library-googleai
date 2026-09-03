@@ -41,38 +41,63 @@ class VideoDisplayNode(DataNode):
 
         # Output parameters will be added dynamically when videos arrive
 
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        # Rebuild the per-video outputs as soon as the list is set, rather than during process().
+        # Parameter changes made inside process() don't propagate back to the authoritative node
+        # when this library runs in Isolated mode.
+        if parameter.name == "videos":
+            self._sync_video_parameters(len(value) if value else 0)
+        return super().after_value_set(parameter, value)
+
     def process(self) -> AsyncResult[None]:
         yield lambda: self._process()
+
+    @staticmethod
+    def _grid_position(index: int) -> tuple[int, int]:
+        row = (index // 2) + 1  # Row: 1, 1, 2, 2, 3, 3...
+        col = (index % 2) + 1  # Col: 1, 2, 1, 2, 1, 2...
+        return row, col
+
+    def _video_parameter_name(self, index: int) -> str:
+        row, col = self._grid_position(index)
+        return f"video_{row}_{col}"
+
+    def _sync_video_parameters(self, video_count: int) -> None:
+        """Make the per-video output parameters match `video_count`.
+
+        Only the difference is applied, so calling this when nothing has changed is a no-op. That
+        matters because process() calls it too, to cover the case where the list was restored from a
+        saved workflow and after_value_set never ran.
+        """
+        wanted = [self._video_parameter_name(i) for i in range(video_count)]
+        existing = [param.name for param in self.parameters if param.name.startswith("video_")]
+
+        for name in existing:
+            if name not in wanted:
+                self.remove_parameter_element_by_name(name)
+
+        for index, name in enumerate(wanted):
+            if name in existing:
+                continue
+            row, col = self._grid_position(index)
+            self.add_parameter(
+                Parameter(
+                    name=name,
+                    type="VideoUrlArtifact",
+                    output_type="VideoUrlArtifact",
+                    tooltip=f"Video at grid position [{row},{col}]",
+                    ui_options={"hide_property": True},
+                    allowed_modes={ParameterMode.OUTPUT},
+                )
+            )
 
     def _process(self):
         # Get the input videos using regular parameter method
         videos = self.get_parameter_value("videos")
 
-        # First, dynamically add output parameters based on video count
-        if videos:
-            video_count = len(videos)
-
-            # Remove any existing video output parameters first
-            params_to_remove = [param for param in self.parameters if param.name.startswith("video_")]
-            for param in params_to_remove:
-                self.parameters.remove(param)
-
-            # Add parameters for each video
-            for i in range(video_count):
-                row = (i // 2) + 1  # Row: 1, 1, 2, 2, 3, 3...
-                col = (i % 2) + 1  # Col: 1, 2, 1, 2, 1, 2...
-                param_name = f"video_{row}_{col}"
-
-                self.add_parameter(
-                    Parameter(
-                        name=param_name,
-                        type="VideoUrlArtifact",
-                        output_type="VideoUrlArtifact",
-                        tooltip=f"Video at grid position [{row},{col}]",
-                        ui_options={"hide_property": True},
-                        allowed_modes={ParameterMode.OUTPUT},
-                    )
-                )
+        # Normally a no-op, since after_value_set has already done this. Needed for a list restored
+        # from a saved workflow, which bypasses that hook.
+        self._sync_video_parameters(len(videos) if videos else 0)
 
         # Debug logging - this was working!
         status_msg = f"📥 Received {len(videos) if videos else 0} videos\n"
@@ -94,10 +119,7 @@ class VideoDisplayNode(DataNode):
 
         # Assign each video to its grid position output
         for i, video in enumerate(videos):
-            row = (i // 2) + 1  # Row: 1, 1, 2, 2, 3, 3...
-            col = (i % 2) + 1  # Col: 1, 2, 1, 2, 1, 2...
-            param_name = f"video_{row}_{col}"
-            self.parameter_output_values[param_name] = video
+            self.parameter_output_values[self._video_parameter_name(i)] = video
 
         # Update status for debugging
         self.parameter_output_values["status"] = status_msg
