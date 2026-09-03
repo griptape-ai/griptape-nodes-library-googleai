@@ -43,38 +43,63 @@ class AudioDisplayNode(DataNode):
 
         # Output parameters will be added dynamically when audios arrive
 
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        # Rebuild the per-clip outputs as soon as the list is set, rather than during process().
+        # Parameter changes made inside process() don't propagate back to the authoritative node
+        # when this library runs in Isolated mode.
+        if parameter.name == "audios":
+            self._sync_audio_parameters(len(value) if value else 0)
+        return super().after_value_set(parameter, value)
+
     def process(self) -> AsyncResult[None]:
         yield lambda: self._process()
+
+    @staticmethod
+    def _grid_position(index: int) -> tuple[int, int]:
+        row = (index // 2) + 1  # Row: 1, 1, 2, 2, 3, 3...
+        col = (index % 2) + 1  # Col: 1, 2, 1, 2, 1, 2...
+        return row, col
+
+    def _audio_parameter_name(self, index: int) -> str:
+        row, col = self._grid_position(index)
+        return f"audio_{row}_{col}"
+
+    def _sync_audio_parameters(self, audio_count: int) -> None:
+        """Make the per-clip output parameters match `audio_count`.
+
+        Only the difference is applied, so calling this when nothing has changed is a no-op. That
+        matters because process() calls it too, to cover the case where the list was restored from a
+        saved workflow and after_value_set never ran.
+        """
+        wanted = [self._audio_parameter_name(i) for i in range(audio_count)]
+        existing = [param.name for param in self.parameters if param.name.startswith("audio_")]
+
+        for name in existing:
+            if name not in wanted:
+                self.remove_parameter_element_by_name(name)
+
+        for index, name in enumerate(wanted):
+            if name in existing:
+                continue
+            row, col = self._grid_position(index)
+            self.add_parameter(
+                Parameter(
+                    name=name,
+                    type="AudioUrlArtifact",
+                    output_type="AudioUrlArtifact",
+                    tooltip=f"Audio at grid position [{row},{col}]",
+                    ui_options={"hide_property": True},
+                    allowed_modes={ParameterMode.OUTPUT},
+                )
+            )
 
     def _process(self):
         # Get the input audios using regular parameter method
         audios = self.get_parameter_value("audios")
 
-        # First, dynamically add output parameters based on audio count
-        if audios:
-            audio_count = len(audios)
-
-            # Remove any existing audio output parameters first
-            params_to_remove = [param for param in self.parameters if param.name.startswith("audio_")]
-            for param in params_to_remove:
-                self.parameters.remove(param)
-
-            # Add parameters for each audio
-            for i in range(audio_count):
-                row = (i // 2) + 1  # Row: 1, 1, 2, 2, 3, 3...
-                col = (i % 2) + 1  # Col: 1, 2, 1, 2, 1, 2...
-                param_name = f"audio_{row}_{col}"
-
-                self.add_parameter(
-                    Parameter(
-                        name=param_name,
-                        type="AudioUrlArtifact",
-                        output_type="AudioUrlArtifact",
-                        tooltip=f"Audio at grid position [{row},{col}]",
-                        ui_options={"hide_property": True},
-                        allowed_modes={ParameterMode.OUTPUT},
-                    )
-                )
+        # Normally a no-op, since after_value_set has already done this. Needed for a list restored
+        # from a saved workflow, which bypasses that hook.
+        self._sync_audio_parameters(len(audios) if audios else 0)
 
         # Debug logging - this was working!
         status_msg = f"📥 Received {len(audios) if audios else 0} audio clips\n"
@@ -96,10 +121,7 @@ class AudioDisplayNode(DataNode):
 
         # Assign each audio to its grid position output
         for i, audio in enumerate(audios):
-            row = (i // 2) + 1  # Row: 1, 1, 2, 2, 3, 3...
-            col = (i % 2) + 1  # Col: 1, 2, 1, 2, 1, 2...
-            param_name = f"audio_{row}_{col}"
-            self.parameter_output_values[param_name] = audio
+            self.parameter_output_values[self._audio_parameter_name(i)] = audio
 
         # Update status for debugging
         self.parameter_output_values["status"] = status_msg
