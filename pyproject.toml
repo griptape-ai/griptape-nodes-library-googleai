@@ -12,19 +12,18 @@ dependencies = [
     "google-cloud-storage>=2.19.0",
     "google-cloud-aiplatform>=1.0.0",
     "google-genai>=2.10.0",
-    "griptape-nodes",
     "requests>=2.32.3",
 ]
 
 [tool.uv.sources]
-griptape-nodes = { git = "https://github.com/griptape-ai/griptape-nodes", rev="latest"}
+griptape-nodes-engine = { git = "https://github.com/griptape-ai/griptape-nodes-engine", rev="latest"}
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [dependency-groups]
-dev = ["pyright>=1.1.396", "pytest-asyncio>=0.21.0", "ruff>=0.8.0", "pytest"]
+dev = ["pyright>=1.1.396", "pytest-asyncio>=0.21.0", "ruff>=0.8.0", "pytest", "griptape-nodes-engine"]
 
 [tool.ruff]
 line-length = 120
