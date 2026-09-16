@@ -42,7 +42,8 @@ CREDENTIALS_HELP = (
     "Set up Google Cloud credentials in the library settings: "
     "GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH (recommended, path to a workload identity config), "
     "or GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to a service account JSON), "
-    "or GOOGLE_CLOUD_PROJECT_ID on a machine with application default credentials, "
+    "or GOOGLE_APPLICATION_CREDENTIALS_JSON, "
+    "or GOOGLE_CLOUD_PROJECT_ID on a machine with application default credentials."
     "or GOOGLE_APPLICATION_CREDENTIALS_JSON."
 )
 
