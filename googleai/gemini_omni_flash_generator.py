@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 from googleai_utils import (
+    CREDENTIALS_HELP,
     GoogleAuthHelper,
     detect_image_mime_from_bytes,
     validate_and_maybe_shrink_image,
@@ -11,6 +12,7 @@ from googleai_utils import (
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -21,7 +23,6 @@ from griptape_nodes.traits.options import Options
 # Attempt to import Google libraries
 try:
     from google import genai
-    from google.cloud import aiplatform
 
     GOOGLE_INSTALLED = True
 except ImportError:
@@ -29,7 +30,17 @@ except ImportError:
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
-MODEL = "gemini-omni-flash-preview"
+MODELS = [
+    "gemini-omni-1.1-flash-preview",
+]
+DEFAULT_MODEL = MODELS[0]
+
+# Google shuts the original Omni preview down on 2026-09-30 and names Omni 1.1 as its
+# replacement, so a workflow saved against it is migrated on load rather than left to 404.
+# https://ai.google.dev/gemini-api/docs/deprecations
+DEPRECATED_MODELS = {
+    "gemini-omni-flash-preview": DEFAULT_MODEL,
+}
 
 VERTEX_AI = "Vertex AI"
 AI_STUDIO_API = "AI Studio API"
@@ -56,13 +67,13 @@ POLL_INTERVAL_SECONDS = 10
 
 
 class GeminiOmniFlashVideoGenerator(ControlNode):
-    """Generate a video with Google's Gemini Omni Flash model via the native Google AI SDK.
+    """Generate a video with Google's Gemini Omni models via the native Google AI SDK.
 
-    Gemini Omni Flash turns a text prompt (and optionally a starting frame or a set of
-    reference images) into a short, 720p video with audio using the Gemini Interactions API
+    Gemini Omni turns a text prompt (and optionally a starting frame or a set of reference
+    images) into a short, 720p video with audio using the Gemini Interactions API
     (client.interactions). The interaction runs in the background and is polled until it
     reaches a terminal state. Reference roles are assigned by prompt tags such as
-    <IMAGE_REF_0>; audio references are not supported by this model.
+    <IMAGE_REF_0>; audio references are not supported by these models.
 
     Supports both auth surfaces: Vertex AI (default, service-account credentials) and
     the AI Studio API (GOOGLE_API_KEY). Google documents Omni on the AI Studio surface;
@@ -91,6 +102,23 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
                 traits={Options(choices=[VERTEX_AI, AI_STUDIO_API])},
                 allow_output=False,
             )
+        )
+
+        # No Options trait here: ModelAccessComponent installs its own, plus the license
+        # decoration and the legacy-value migration.
+        model_parameter = ParameterString(
+            name="model",
+            tooltip="The Gemini Omni model to use for generation.",
+            default_value=DEFAULT_MODEL,
+            allow_output=False,
+        )
+        self.add_parameter(model_parameter)
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_parameter,
+            model_choices=MODELS,
+            default_model=DEFAULT_MODEL,
+            deprecated_values=DEPRECATED_MODELS,
         )
 
         # Main inputs
@@ -199,6 +227,7 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         if parameter.name == "image":
             self._update_legacy_image_visibility()
+        self._model_access.on_value_set(parameter, value)
         return super().after_value_set(parameter, value)
 
     def _update_legacy_image_visibility(self) -> None:
@@ -220,12 +249,8 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
 
     def _reset_outputs(self) -> None:
         """Clear output parameters so stale values don't persist across re-adds/reruns."""
-        try:
-            self.parameter_output_values["logs"] = ""
-            self.parameter_output_values["video"] = None
-        except Exception:
-            # Be defensive if the base class changes how outputs are stored.
-            pass
+        self.parameter_output_values["logs"] = ""
+        self.parameter_output_values["video"] = None
 
     def _build_client(self, api_provider: str):
         """Construct a genai Client for the selected auth provider."""
@@ -245,7 +270,6 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
             GriptapeNodes.SecretsManager(), log_func=self._log
         )
         self._log(f"Project ID: {project_id}")
-        aiplatform.init(project=project_id, location=VERTEX_LOCATION, credentials=credentials)
         return genai.Client(vertexai=True, project=project_id, location=VERTEX_LOCATION, credentials=credentials)
 
     def _image_to_base64(self, art: Any) -> tuple[str, str]:
@@ -271,30 +295,45 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
         )
         return base64.b64encode(image_bytes).decode("utf-8"), mime
 
-    def process(self) -> AsyncResult:
-        self._reset_outputs()
+    def validate_before_node_run(self) -> list[Exception] | None:
+        """Reject a run that cannot possibly produce a video."""
+        exceptions: list[Exception] = []
 
         if not GOOGLE_INSTALLED:
-            self._log(
-                "ERROR: Required Google libraries are not installed. Please add 'google-auth', "
-                "'google-cloud-aiplatform', 'google-genai' to your library's dependencies."
+            exceptions.append(
+                ImportError(
+                    f"{self.name}: the Google libraries are not installed. Add 'google-auth' and "
+                    "'google-genai' to this library's dependencies."
+                )
             )
-            return
-            yield  # unreachable, but makes this a generator
+        if not self.get_parameter_value("prompt"):
+            exceptions.append(ValueError(f"{self.name}: a prompt is required."))
+
+        return exceptions or None
+
+    def process(self) -> AsyncResult:
+        self._reset_outputs()
+        self._model_access.raise_if_selection_denied()
 
         api_provider = self.get_parameter_value("api_provider") or VERTEX_AI
+        model = self.get_parameter_value("model") or DEFAULT_MODEL
         prompt = self.get_parameter_value("prompt")
         aspect_ratio = self.get_parameter_value("aspect_ratio") or "16:9"
         image = self.get_parameter_value("image")
         reference_images = self.get_parameter_list_value("reference_images")
 
-        if not prompt:
-            self._log("ERROR: Prompt is a required input.")
-            return
-
+        # Only client construction counts as an auth failure. `_image_to_base64` below raises
+        # ValueError for an unsupported MIME type or an image that will not fit under the size
+        # cap, and neither is a credentials problem.
         try:
             client = self._build_client(api_provider)
+        except ValueError as e:
+            self.parameter_output_values["video"] = None
+            self._log(f"❌ Configuration error: {e}")
+            msg = f"{self.name}: could not authenticate to Google. {e} {CREDENTIALS_HELP}"
+            raise RuntimeError(msg) from e
 
+        try:
             # Build the interactions `input`: a plain prompt for text-to-video, or a list of
             # content items (images + text). Reference images and a starting frame mean different
             # things to the model, so they select different tasks rather than combining.
@@ -324,7 +363,7 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
             self._log(f"🎬 Generating video for prompt: '{prompt}' (task: {task})")
 
             interaction = client.interactions.create(
-                model=MODEL,
+                model=model,
                 input=model_input,
                 background=True,
                 response_format={"type": "video", "aspect_ratio": aspect_ratio},
@@ -334,10 +373,11 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
             self._log(f"⏳ Interaction started (id: {interaction.id}). Waiting for completion...")
             yield lambda: self._poll_and_process(client, interaction.id)
 
-        except ValueError as e:
-            self._log(f"❌ CONFIGURATION ERROR: {e}")
         except Exception as e:
-            self._log(f"❌ An unexpected error occurred: {e}")
+            self.parameter_output_values["video"] = None
+            self._log(f"❌ Video generation failed: {e}")
+            msg = f"{self.name}: Gemini Omni video generation failed. {e}"
+            raise RuntimeError(msg) from e
 
     def _poll_and_process(self, client, interaction_id: str) -> None:
         """Poll the background interaction until terminal, then save the video."""
@@ -349,18 +389,18 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
                 self._log(f"⏳ Still generating... (status: {interaction.status})")
 
             if interaction.status != "completed":
-                self._log(f"❌ Interaction ended with status '{interaction.status}'. No video produced.")
-                return
+                msg = f"Gemini Omni ended with status '{interaction.status}' and produced no video."
+                raise RuntimeError(msg)
 
             video_content = self._find_video_content(interaction)
             if video_content is None:
-                self._log("❌ Interaction completed but contained no video output.")
-                return
+                msg = "Gemini Omni reported completion but returned no video."
+                raise RuntimeError(msg)
 
             video_bytes = self._video_content_to_bytes(client, video_content)
             if not video_bytes:
-                self._log("❌ Could not retrieve video data from the interaction output.")
-                return
+                msg = "Gemini Omni returned a video reference whose data could not be retrieved."
+                raise RuntimeError(msg)
 
             saved = self._output_file.build_file().write_bytes(video_bytes)
             url_artifact = VideoUrlArtifact(value=saved.location, name=saved.location)
@@ -368,11 +408,10 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
             self._log(f"✅ Saved video ({len(video_bytes)} bytes) to {saved.location}")
 
         except Exception as e:
-            self._log(f"❌ An unexpected error occurred during polling: {e}")
-            import traceback
-
-            self._log(traceback.format_exc())
-            raise
+            self.parameter_output_values["video"] = None
+            self._log(f"❌ Failed while waiting for the video: {e}")
+            msg = f"{self.name}: Gemini Omni video generation failed while polling. {e}"
+            raise RuntimeError(msg) from e
 
     @staticmethod
     def _find_video_content(interaction) -> Any:

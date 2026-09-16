@@ -2,6 +2,10 @@
 .venv
 __pycache__/
 .DS_Store
-uv.lock
-uv.lock
 *.ipynb
+
+# Google service account keys are private keys. Any of these in the tree is a credential, so
+# they are ignored by pattern rather than relied on being noticed in a diff.
+*service-account*.json
+*service_account*.json
+application_default_credentials.json

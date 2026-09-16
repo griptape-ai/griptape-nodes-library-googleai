@@ -1,6 +1,5 @@
 import json
 import re
-from typing import Any
 
 from base_analyze_media import BaseAnalyzeMedia
 
@@ -20,13 +19,6 @@ class IdentifyTimecodes(BaseAnalyzeMedia):
             ui_options = prompt_param.ui_options
             ui_options["placeholder_text"] = "What should I look for in this media?"
             prompt_param.ui_options = ui_options
-
-        # Since we're talking timecodes, we are only taking video or audio files
-        media_param = self.get_parameter_by_name("media")
-        if media_param:
-            # Note: allowed_types might not be a settable attribute, this is just for documentation
-            # The actual filtering should be handled by the UI or validation
-            pass
 
         # The output is JSON, so let's modify the output parameter to be a JSON object
         output_param = self.get_parameter_by_name("output")
@@ -151,55 +143,45 @@ Guidelines:
             )
 
         # Generate content with all media
+        response = client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=self._generation_config(temperature, max_tokens),
+        )
+
+        # Strip markdown code blocks if present
+        cleaned_response = self._strip_markdown_json(self._read_response_text(response))
+
+        # This node's `output` is declared `type="json"`, so unparseable text cannot be passed
+        # through the way the base class passes through prose: downstream consumers would get
+        # malformed JSON with only a log line to explain it. Truncation is the usual cause.
         try:
-            response = client.models.generate_content(
-                model=model,
-                contents=contents,
+            parsed_json = json.loads(cleaned_response)
+        except json.JSONDecodeError as e:
+            msg = (
+                f"Gemini did not return valid JSON for the timecode request ({e}). "
+                f"Response began: {cleaned_response[:200]!r}"
             )
+            raise ValueError(msg) from e
 
-            if response.candidates and response.candidates[0].content:
-                timecode_response = response.candidates[0].content.parts[0].text
+        if "chapters" in parsed_json and "time_format" in parsed_json:
+            self._log("✅ Successfully extracted timecode data (single video)")
+            return cleaned_response
 
-                # Strip markdown code blocks if present
-                cleaned_response = self._strip_markdown_json(timecode_response)
+        if "videos" in parsed_json and isinstance(parsed_json["videos"], list):
+            missing = [
+                index + 1
+                for index, video in enumerate(parsed_json["videos"])
+                if "chapters" not in video or "time_format" not in video
+            ]
+            if missing:
+                self._log(f"⚠️ Video(s) {missing} missing required fields, returning as-is")
+            else:
+                self._log("✅ Successfully extracted timecode data (multiple videos)")
+            return cleaned_response
 
-                # Try to parse the JSON response
-                try:
-                    parsed_json = json.loads(cleaned_response)
-                    # Validate the structure - check for both single video and multiple video formats
-                    if "chapters" in parsed_json and "time_format" in parsed_json:
-                        # Single video format
-                        self._log("✅ Successfully extracted timecode data (single video)")
-                        return cleaned_response
-                    if "videos" in parsed_json and isinstance(parsed_json["videos"], list):
-                        # Multiple video format - validate each video has required fields
-                        valid_videos = True
-                        for i, video in enumerate(parsed_json["videos"]):
-                            if "chapters" not in video or "time_format" not in video:
-                                self._log(f"⚠️ Video {i + 1} missing required fields")
-                                valid_videos = False
-                                break
-                        if valid_videos:
-                            self._log("✅ Successfully extracted timecode data (multiple videos)")
-                            return cleaned_response
-                        self._log("⚠️ Some videos missing required fields, returning as-is")
-                        return cleaned_response
-                    self._log("⚠️ Response missing required fields, returning as-is")
-                    return cleaned_response
-                except json.JSONDecodeError:
-                    self._log("⚠️ Response is not valid JSON, returning as-is")
-                    return cleaned_response
-
-            raise ValueError("No response generated from Gemini model")
-
-        except Exception as e:
-            # Handle "Service agents are being provisioned" error
-            if "FAILED_PRECONDITION" in str(e) and "Service agents are being provisioned" in str(e):
-                self._log("⚠️ Service agents are being provisioned. Retrying with inline data...")
-                # For now, just re-raise the error since we don't have the original bytes
-                raise
-            # Re-raise other errors
-            raise
+        self._log("⚠️ Response missing required fields, returning as-is")
+        return cleaned_response
 
     def _strip_markdown_json(self, text: str) -> str:
         """Remove markdown code blocks from JSON response."""
@@ -209,8 +191,3 @@ Guidelines:
         # Also handle cases without language specification
         text = re.sub(r"^```\s*", "", text, flags=re.MULTILINE)
         return text.strip()
-
-    def process(self) -> Any:
-        """Process the media and extract timecode markers."""
-        # Just use the parent class process method - it will set the output parameter
-        return super().process()
