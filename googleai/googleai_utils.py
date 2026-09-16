@@ -44,7 +44,6 @@ CREDENTIALS_HELP = (
     "or GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to a service account JSON), "
     "or GOOGLE_APPLICATION_CREDENTIALS_JSON, "
     "or GOOGLE_CLOUD_PROJECT_ID on a machine with application default credentials."
-    "or GOOGLE_APPLICATION_CREDENTIALS_JSON."
 )
 
 

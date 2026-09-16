@@ -197,6 +197,10 @@ class LyriaAudioGenerator(ControlNode):
         logger.info(message)
         self.append_value_to_parameter("logs", message + "\n")
 
+    def _clear_audio_output(self) -> None:
+        """Clear the audio output but keep the logs, which explain the failure."""
+        self.parameter_output_values["output"] = None
+
     def _generate_audio(  # noqa: PLR0913
         self,
         final_project_id: str,
@@ -241,7 +245,7 @@ class LyriaAudioGenerator(ControlNode):
             self._log(f"✅ Audio saved. URL: {saved.location}")
 
         except requests.exceptions.HTTPError as e:
-            self.parameter_output_values["output"] = None
+            self._clear_audio_output()
             api_message = self._api_error_message(e)
             self._log(f"❌ API error: {api_message}")
             if e.response is not None and e.response.status_code == 404:
@@ -257,7 +261,7 @@ class LyriaAudioGenerator(ControlNode):
             msg = f"{self.name}: Lyria rejected the request. {api_message}"
             raise RuntimeError(msg) from e
         except Exception as e:
-            self.parameter_output_values["output"] = None
+            self._clear_audio_output()
             self._log(f"❌ Audio generation failed: {e}")
             msg = f"{self.name}: Lyria audio generation failed. {e}"
             raise RuntimeError(msg) from e
@@ -334,7 +338,7 @@ class LyriaAudioGenerator(ControlNode):
         credentials, final_project_id = credentials_or_raise(
             self.name,
             log_func=self._log,
-            on_failure=lambda: self.parameter_output_values.__setitem__("output", None),
+            on_failure=self._clear_audio_output,
         )
         self._log(f"Project ID: {final_project_id}")
 
@@ -374,7 +378,7 @@ class LyriaAudioGenerator(ControlNode):
                 kwargs["generation_config"] = generation_config
             interaction = client.interactions.create(**kwargs)
         except Exception as e:
-            self.parameter_output_values["output"] = None
+            self._clear_audio_output()
             self._log(f"❌ Audio generation failed: {e}")
             if "not found" in str(e).lower() or "404" in str(e):
                 self._log(
@@ -392,7 +396,7 @@ class LyriaAudioGenerator(ControlNode):
             self.parameter_output_values["output"] = AudioUrlArtifact(value=saved.location, name=saved.location)
             self._log(f"✅ Audio saved. URL: {saved.location}")
         except Exception as e:
-            self.parameter_output_values["output"] = None
+            self._clear_audio_output()
             self._log(f"❌ Audio generation failed: {e}")
             msg = f"{self.name}: Lyria audio generation failed. {e}"
             raise RuntimeError(msg) from e

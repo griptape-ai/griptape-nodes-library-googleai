@@ -296,6 +296,10 @@ class VertexAIImageGenerator(ControlNode):
         logger.info(message)
         self.append_value_to_parameter("logs", message + "\n")
 
+    def _clear_image_outputs(self) -> None:
+        """Clear the image output but keep the logs, which explain the failure."""
+        self.parameter_output_values["image"] = None
+
     def _on_migrate_to_nano_banana_2_clicked(
         self,
         button: Button,  # noqa: ARG002
@@ -433,7 +437,7 @@ class VertexAIImageGenerator(ControlNode):
         enhance_prompt = self.get_parameter_value("enhance_prompt")
 
         credentials, final_project_id = credentials_or_raise(
-            self.name, log_func=self._log, on_failure=lambda: self.parameter_output_values.__setitem__("image", None)
+            self.name, log_func=self._log, on_failure=self._clear_image_outputs
         )
 
         try:
@@ -461,7 +465,7 @@ class VertexAIImageGenerator(ControlNode):
             )
 
         except Exception as e:
-            self.parameter_output_values["image"] = None
+            self._clear_image_outputs()
             self._log(f"❌ Image generation failed: {e}")
             msg = f"{self.name}: Imagen image generation failed. {e}"
             raise RuntimeError(msg) from e

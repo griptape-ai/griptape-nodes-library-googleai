@@ -161,7 +161,6 @@ Guidelines:
             msg = (
                 f"Gemini did not return valid JSON for the timecode request ({e}). "
                 f"Response began: {cleaned_response[:200]!r}"
-                f"for what it did return. Response began: {cleaned_response[:200]!r}"
             )
             raise ValueError(msg) from e
 
