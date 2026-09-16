@@ -3,7 +3,7 @@ import logging
 from typing import Any
 
 import requests
-from googleai_utils import CREDENTIALS_HELP, GoogleAuthHelper, with_extension
+from googleai_utils import GoogleAuthHelper, credentials_or_raise, with_extension
 from griptape.artifacts import AudioUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
@@ -11,7 +11,6 @@ from griptape_nodes.exe_types.param_components.model_access_component import Mod
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 # Attempt to import Google libraries
@@ -332,17 +331,12 @@ class LyriaAudioGenerator(ControlNode):
             self._seed_parameter.preprocess()
             seed = self._seed_parameter.get_seed()
 
-        try:
-            # Use GoogleAuthHelper for authentication
-            credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
-                GriptapeNodes.SecretsManager(), log_func=self._log
-            )
-            self._log(f"Project ID: {final_project_id}")
-        except ValueError as e:
-            self.parameter_output_values["output"] = None
-            self._log(f"❌ Configuration error: {e}")
-            msg = f"{self.name}: could not authenticate to Google Cloud. {e} {CREDENTIALS_HELP}"
-            raise RuntimeError(msg) from e
+        credentials, final_project_id = credentials_or_raise(
+            self.name,
+            log_func=self._log,
+            on_failure=lambda: self.parameter_output_values.__setitem__("output", None),
+        )
+        self._log(f"Project ID: {final_project_id}")
 
         if uses_interactions:
             self._generate_audio_via_interactions(final_project_id, credentials, model, prompt, negative_prompt)

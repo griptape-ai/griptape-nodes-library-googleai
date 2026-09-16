@@ -25,7 +25,6 @@ from griptape_nodes.exe_types.param_components.seed_parameter import SeedParamet
 from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 try:
@@ -36,7 +35,7 @@ try:
 except ImportError:
     GOOGLE_INSTALLED = False
 
-from googleai_utils import CREDENTIALS_HELP, GoogleAuthHelper
+from googleai_utils import credentials_or_raise
 
 if TYPE_CHECKING:
     from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
@@ -433,17 +432,9 @@ class VertexAIImageGenerator(ControlNode):
         person_generation = self.get_parameter_value("person_generation")
         enhance_prompt = self.get_parameter_value("enhance_prompt")
 
-        # Only the credentials lookup counts as an auth failure; a ValueError raised later in
-        # the run is not a credentials problem and must not be reported as one.
-        try:
-            credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
-                GriptapeNodes.SecretsManager(), log_func=self._log
-            )
-        except ValueError as e:
-            self.parameter_output_values["image"] = None
-            self._log(f"❌ Configuration error: {e}")
-            msg = f"{self.name}: could not authenticate to Google Cloud. {e} {CREDENTIALS_HELP}"
-            raise RuntimeError(msg) from e
+        credentials, final_project_id = credentials_or_raise(
+            self.name, log_func=self._log, on_failure=lambda: self.parameter_output_values.__setitem__("image", None)
+        )
 
         try:
             self._log(f"Project ID: {final_project_id}")

@@ -31,7 +31,6 @@ from griptape_nodes.exe_types.param_types.parameter_button import ParameterButto
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 try:
@@ -43,8 +42,7 @@ except ImportError:
     GOOGLE_INSTALLED = False
 
 from googleai_utils import (
-    CREDENTIALS_HELP,
-    GoogleAuthHelper,
+    credentials_or_raise,
     detect_image_mime_from_bytes,
     validate_and_maybe_shrink_image,
 )
@@ -546,18 +544,9 @@ class GeminiImageGenerator(ControlNode):
         top_p = self.get_parameter_value("top_p")
         candidate_count = self.get_parameter_value("candidate_count")
 
-        # Only the credentials lookup counts as an auth failure. A ValueError raised later in the
-        # run — a pydantic config rejection, or a file destination with no filename — is not a
-        # credentials problem and must not be reported as one.
-        try:
-            credentials, project_id = GoogleAuthHelper.get_credentials_and_project(
-                GriptapeNodes.SecretsManager(), log_func=self._log
-            )
-        except ValueError as e:
-            self._clear_image_outputs()
-            self._log(f"❌ Configuration error: {e}")
-            msg = f"{self.name}: could not authenticate to Google Cloud. {e} {CREDENTIALS_HELP}"
-            raise RuntimeError(msg) from e
+        credentials, project_id = credentials_or_raise(
+            self.name, log_func=self._log, on_failure=self._clear_image_outputs
+        )
 
         try:
             self._log(f"Project ID: {project_id}")

@@ -12,7 +12,6 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
@@ -27,10 +26,9 @@ except ImportError:
     GOOGLE_INSTALLED = False
 
 from googleai_utils import (
-    CREDENTIALS_HELP,
     FULL_DURATION_SECONDS,
     HIGH_RESOLUTIONS,
-    GoogleAuthHelper,
+    credentials_or_raise,
     detect_image_mime_from_bytes,
 )
 
@@ -491,10 +489,9 @@ class VeoImageToVideoGenerator(ControlNode):
             # Fix: videos are in operation.response, not operation.result
             generated_videos = operation.response.generated_videos if operation.response else None
 
-            # Content filtering. `rai_media_filtered_count` always exists on the response and
-            # defaults to None, so it is coerced rather than compared directly: `None > 0` would
-            # fail a run that actually succeeded. A partial filter is logged and the surviving
-            # videos are kept; only losing all of them is a failure.
+            # `rai_media_filtered_count` is present on every response and defaults to None, so it
+            # is coerced before comparison. A partial filter keeps the surviving videos; only
+            # losing all of them is a failure.
             filtered_count = getattr(operation.response, "rai_media_filtered_count", None) or 0
             if filtered_count:
                 self._log(f"🚫 Content Filter: {filtered_count} video(s) were filtered by Google's content policy.")
@@ -662,17 +659,9 @@ class VeoImageToVideoGenerator(ControlNode):
                 self._log(f"ERROR: Failed to convert last_frame dict to image artifact: {e}")
                 last_frame_artifact = None
 
-        # Only the credentials lookup counts as an auth failure; a ValueError raised later in
-        # the run is not a credentials problem and must not be reported as one.
-        try:
-            credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
-                GriptapeNodes.SecretsManager(), log_func=self._log
-            )
-        except ValueError as e:
-            self._clear_video_outputs()
-            self._log(f"❌ Configuration error: {e}")
-            msg = f"{self.name}: could not authenticate to Google Cloud. {e} {CREDENTIALS_HELP}"
-            raise RuntimeError(msg) from e
+        credentials, final_project_id = credentials_or_raise(
+            self.name, log_func=self._log, on_failure=self._clear_video_outputs
+        )
 
         try:
             self._log(f"Project ID: {final_project_id}")

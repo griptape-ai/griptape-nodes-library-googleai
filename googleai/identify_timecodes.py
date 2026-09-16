@@ -159,9 +159,8 @@ Guidelines:
             parsed_json = json.loads(cleaned_response)
         except json.JSONDecodeError as e:
             msg = (
-                f"Gemini did not return valid JSON for the timecode request ({e}). If the response "
-                "was cut off, raise 'max_tokens': a full chapter list for long media needs a large "
-                "budget."
+                f"Gemini did not return valid JSON for the timecode request ({e}). Check the logs "
+                f"for what it did return. Response began: {cleaned_response[:200]!r}"
             )
             raise ValueError(msg) from e
 

@@ -24,7 +24,7 @@ try:
 except ImportError:
     GOOGLE_INSTALLED = False
 
-from googleai_utils import CREDENTIALS_HELP, GoogleAuthHelper
+from googleai_utils import credentials_or_raise
 from griptape_nodes.files.file import File
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
@@ -138,8 +138,7 @@ class BaseAnalyzeMedia(ControlNode):
                     "answering is charged against this budget, so a low value can end a run before "
                     "any text is produced."
                 ),
-                # 8192 rather than 2048: this budget is now actually sent, and reasoning tokens
-                # come out of it, so the old value truncated real media analyses.
+                # Sized for media analysis with reasoning charged against the same budget.
                 default_value=8192,
                 traits=[Options(choices=[1024, 2048, 4096, 8192, 16384, 32768])],
                 allowed_modes={ParameterMode.PROPERTY},
@@ -459,22 +458,21 @@ class BaseAnalyzeMedia(ControlNode):
     def _read_response_text(response: Any) -> str:
         """Return the model's text, naming the real cause when there is none.
 
-        A response can carry a candidate with no parts at all: the thinking-capable models charge
-        reasoning against `max_output_tokens`, so a budget that runs out before any visible text
-        leaves `content.parts` as None. Indexing that blindly surfaces "'NoneType' object is not
-        subscriptable", which tells an artist nothing about the setting that caused it.
+        `response.text` rather than the first part: a response routinely splits its text across
+        several parts, and the thinking-capable models lead with parts that carry only a thought
+        signature. The SDK accessor concatenates every text part, skips the thought parts, and
+        answers None when there is no text at all, which is the signal the branches below need.
         """
+        text = response.text
+        if text:
+            return text
+
         candidates = response.candidates or []
         if not candidates:
             msg = "Gemini returned no candidates for this request."
             raise ValueError(msg)
 
-        candidate = candidates[0]
-        parts = candidate.content.parts if candidate.content is not None else None
-        if parts:
-            return parts[0].text or ""
-
-        finish_reason = getattr(candidate, "finish_reason", None)
+        finish_reason = getattr(candidates[0], "finish_reason", None)
         if finish_reason is not None and "MAX_TOKENS" in str(finish_reason):
             msg = (
                 "Gemini stopped at the 'max_tokens' limit before producing any text. Raise "
@@ -547,21 +545,12 @@ class BaseAnalyzeMedia(ControlNode):
 
         self._log(f"📁 Processing {len(media_artifacts)} media item(s)...")
 
-        # Only the credentials lookup is treated as an auth failure. Wrapping the whole run in
-        # `except ValueError` would report any ValueError raised downstream (an empty model
-        # response, for instance) as though the credentials were wrong.
-        try:
-            credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
-                GriptapeNodes.SecretsManager(), log_func=self._log
-            )
-        except ValueError as e:
-            self._set_safe_defaults()
-            self._log(f"❌ Configuration error: {e}")
-            msg = (
-                f"{self.name}: could not authenticate to Google Cloud. {e} {CREDENTIALS_HELP} "
-                "Also confirm the Vertex AI API is enabled for the project."
-            )
-            raise RuntimeError(msg) from e
+        credentials, final_project_id = credentials_or_raise(
+            self.name,
+            log_func=self._log,
+            on_failure=self._set_safe_defaults,
+            extra_help=" Also confirm the Vertex AI API is enabled for the project.",
+        )
 
         try:
             self._log(f"Project ID: {final_project_id}")
