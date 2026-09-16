@@ -3,7 +3,40 @@
 import json
 import os
 from collections.abc import Callable
+from pathlib import PurePath
 from typing import Any
+
+
+def with_extension(filename: str, extension: str) -> str:
+    """`filename` with its extension replaced, keeping the base name the artist chose.
+
+    Goes through a path type rather than splitting on the last dot, because `output_file` accepts
+    a path: `renders/v1.2/hero` would otherwise become `renders/v1.png`, silently changing
+    directory. `PurePath` so a Windows artist's backslashes are understood as separators too.
+
+    A filename that is nothing but separators or dots has no name to re-extension, so it is
+    returned unchanged rather than raising out of a parameter-change hook.
+    """
+    path = PurePath(filename)
+    if not path.name or path.name in {".", ".."}:
+        return filename
+    return str(path.with_suffix(extension))
+
+
+# Every Veo 3.1 variant produces 1080p only at the full 8-second length.
+# https://ai.google.dev/gemini-api/docs/veo
+HIGH_RESOLUTIONS = frozenset({"1080p"})
+FULL_DURATION_SECONDS = 8
+
+# Appended to the error raised when authentication fails, so every node names the same four
+# settings in the same order that GoogleAuthHelper actually tries them.
+CREDENTIALS_HELP = (
+    "Set up Google Cloud credentials in the library settings: "
+    "GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH (recommended, path to a workload identity config), "
+    "or GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to a service account JSON), "
+    "or GOOGLE_APPLICATION_CREDENTIALS_JSON, "
+    "or GOOGLE_CLOUD_PROJECT_ID on a machine with application default credentials."
+)
 
 
 def detect_image_mime_from_bytes(data: bytes) -> str | None:

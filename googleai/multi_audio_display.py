@@ -1,13 +1,25 @@
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import AsyncResult, DataNode
+from griptape_nodes.exe_types.node_types import DataNode
+
+# The per-cell outputs are declared up front rather than grown to fit the incoming list, because
+# adding or removing parameters from inside `process` only mutates the transient node the worker
+# built for that run and never reaches the orchestrator's authoritative copy.
+GRID_COLUMNS = 2
+GRID_ROWS = 4
+MAX_CELLS = GRID_COLUMNS * GRID_ROWS
+
+
+def _cell_name(index: int) -> str:
+    """Grid parameter name for the nth audio clip, filling left to right, top to bottom."""
+    row = (index // GRID_COLUMNS) + 1
+    col = (index % GRID_COLUMNS) + 1
+    return f"audio_{row}_{col}"
 
 
 class AudioDisplayNode(DataNode):
-    """
-    A node that displays audio players in the UI for audio URL artifacts.
-    """
+    """A node that displays audio players in the UI for audio URL artifacts."""
 
     def __init__(
         self,
@@ -17,19 +29,19 @@ class AudioDisplayNode(DataNode):
     ) -> None:
         super().__init__(name, metadata)
 
-        # Add parameter using your EXACT grid specification
-        grid_param = Parameter(
-            name="audios",
-            type="list",
-            default_value=value or [],
-            input_types=["list", "list[AudioUrlArtifact]"],  # Accept both types
-            tooltip="The list of audio clips to display",
-            ui_options={"display": "grid", "columns": 2, "pulse_on_run": True},
-            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        self.add_parameter(
+            Parameter(
+                name="audios",
+                type="list",
+                default_value=value or [],
+                input_types=["list", "list[AudioUrlArtifact]"],
+                output_type="list[AudioUrlArtifact]",
+                tooltip="The list of audio clips to display",
+                ui_options={"display": "grid", "columns": GRID_COLUMNS, "pulse_on_run": True},
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY, ParameterMode.OUTPUT},
+            )
         )
-        self.add_parameter(grid_param)
 
-        # Add status parameter for debugging (input only)
         self.add_parameter(
             Parameter(
                 name="status",
@@ -37,72 +49,59 @@ class AudioDisplayNode(DataNode):
                 default_value="",
                 tooltip="Status and debug information",
                 ui_options={"multiline": True},
-                allowed_modes={ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.OUTPUT},
             )
         )
 
-        # Output parameters will be added dynamically when audios arrive
-
-    def process(self) -> AsyncResult[None]:
-        yield lambda: self._process()
-
-    def _process(self):
-        # Get the input audios using regular parameter method
-        audios = self.get_parameter_value("audios")
-
-        # First, dynamically add output parameters based on audio count
-        if audios:
-            audio_count = len(audios)
-
-            # Remove any existing audio output parameters first
-            params_to_remove = [param for param in self.parameters if param.name.startswith("audio_")]
-            for param in params_to_remove:
-                self.parameters.remove(param)
-
-            # Add parameters for each audio
-            for i in range(audio_count):
-                row = (i // 2) + 1  # Row: 1, 1, 2, 2, 3, 3...
-                col = (i % 2) + 1  # Col: 1, 2, 1, 2, 1, 2...
-                param_name = f"audio_{row}_{col}"
-
-                self.add_parameter(
-                    Parameter(
-                        name=param_name,
-                        type="AudioUrlArtifact",
-                        output_type="AudioUrlArtifact",
-                        tooltip=f"Audio at grid position [{row},{col}]",
-                        ui_options={"hide_property": True},
-                        allowed_modes={ParameterMode.OUTPUT},
-                    )
+        for index in range(MAX_CELLS):
+            self.add_parameter(
+                Parameter(
+                    name=_cell_name(index),
+                    type="AudioUrlArtifact",
+                    output_type="AudioUrlArtifact",
+                    tooltip=f"Audio at grid position {_cell_name(index).removeprefix('audio_').replace('_', ',')}",
+                    ui_options={"hide_property": True},
+                    allowed_modes={ParameterMode.OUTPUT},
                 )
+            )
 
-        # Debug logging - this was working!
-        status_msg = f"📥 Received {len(audios) if audios else 0} audio clips\n"
+        self._update_cell_visibility(self.get_parameter_value("audios"))
 
-        if audios:
-            for i, audio in enumerate(audios):
-                if hasattr(audio, "value"):
-                    status_msg += f"🎵 Audio {i + 1}: {audio.value}\n"
-                    status_msg += f"   Type: {type(audio).__name__}\n"
-                    if hasattr(audio, "mime_type"):
-                        status_msg += f"   MIME: {audio.mime_type}\n"
-                else:
-                    status_msg += f"⚠️ Audio {i + 1}: {audio} (no .value attribute)\n"
-        else:
-            status_msg += "❌ No audio clips received or audios is None\n"
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        """Show only as many grid cells as there are audio clips."""
+        if parameter.name == "audios":
+            self._update_cell_visibility(value)
+        return super().after_value_set(parameter, value)
 
-        # Set grid inputs and individual audio outputs
+    def process(self) -> None:
+        audios = self.get_parameter_value("audios") or []
+
+        status_lines = [f"📥 Received {len(audios)} audio clip(s)"]
+        for index, audio in enumerate(audios):
+            if hasattr(audio, "value"):
+                status_lines.append(f"🎵 Audio {index + 1}: {audio.value} ({type(audio).__name__})")
+            else:
+                status_lines.append(f"⚠️ Audio {index + 1}: {audio} (no .value attribute)")
+        if len(audios) > MAX_CELLS:
+            status_lines.append(
+                f"ℹ️ Only the first {MAX_CELLS} clips get their own output; all {len(audios)} are in 'audios'."
+            )
+
         self.parameter_output_values["audios"] = audios
 
-        # Assign each audio to its grid position output
-        for i, audio in enumerate(audios):
-            row = (i // 2) + 1  # Row: 1, 1, 2, 2, 3, 3...
-            col = (i % 2) + 1  # Col: 1, 2, 1, 2, 1, 2...
-            param_name = f"audio_{row}_{col}"
-            self.parameter_output_values[param_name] = audio
+        # Every cell is assigned on every run: a cell left holding the previous run's clip would
+        # keep feeding a stale artifact downstream after the list got shorter.
+        for index in range(MAX_CELLS):
+            self.parameter_output_values[_cell_name(index)] = audios[index] if index < len(audios) else None
 
-        # Update status for debugging
-        self.parameter_output_values["status"] = status_msg
-
-        # Trigger UI refresh for the audios parameter
+        self.parameter_output_values["status"] = "\n".join(status_lines)
         self.publish_update_to_parameter("audios", audios)
+
+    def _update_cell_visibility(self, audios: Any) -> None:
+        """Reveal one grid cell per audio clip, hiding the rest."""
+        count = len(audios) if isinstance(audios, list) else 0
+        for index in range(MAX_CELLS):
+            if index < count:
+                self.show_parameter_by_name(_cell_name(index))
+            else:
+                self.hide_parameter_by_name(_cell_name(index))

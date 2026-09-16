@@ -1,11 +1,28 @@
-import logging
-from typing import Any, ClassVar
+from __future__ import annotations
 
+import logging
+from datetime import date
+from typing import TYPE_CHECKING, Any
+
+from _image_migration import (
+    IMAGEN_SOURCE,
+    NANO_BANANA_2_TARGET,
+    NANO_BANANA_PRO_TARGET,
+    MigrationTarget,
+    migrate_image_node,
+)
 from griptape.artifacts import ImageUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import (
+    NodeMessageResult,
+    Parameter,
+    ParameterGroup,
+    ParameterMessage,
+    ParameterMode,
+)
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
+from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
@@ -13,17 +30,36 @@ from griptape_nodes.traits.options import Options
 
 try:
     from google import genai
-    from google.cloud import aiplatform, storage
     from google.genai import types
 
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
 
-from googleai_utils import GoogleAuthHelper
+from googleai_utils import CREDENTIALS_HELP, GoogleAuthHelper
+
+if TYPE_CHECKING:
+    from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
+# Google retired the Imagen 4.0 endpoints on this date and the Imagen 3.0 endpoints on
+# 2025-11-10. Every id below now answers 404 on Vertex AI.
+# https://ai.google.dev/gemini-api/docs/deprecations
+IMAGEN_4_RETIREMENT_DATE = date(2026, 8, 17)
+# Spelled-out month, so no reader has to guess whether 08-17 is day-month or month-day.
+IMAGEN_4_RETIREMENT_DATE_TEXT = IMAGEN_4_RETIREMENT_DATE.strftime("%d %B %Y")
+
+RETIREMENT_MESSAGE = (
+    f"Google retired the Imagen 4.0 models on {IMAGEN_4_RETIREMENT_DATE_TEXT} and the Imagen 3.0 "
+    "models on 10 November 2025. Every model this node offers now returns 404, so it cannot "
+    "generate an image under any configuration.\n\n"
+    "Use one of the buttons below to migrate to a still-supported image generation node. Your "
+    "prompt, aspect ratio, connections, and canvas position carry over, and this node is removed."
+)
+
+# Kept so saved workflows still resolve the value stored in their `model` parameter. None of
+# these ids resolve at Google any more; the dropdown exists to be read, not to be run.
 MODELS = [
     "imagen-4.0-generate-001",
     "imagen-4.0-fast-generate-001",
@@ -36,14 +72,59 @@ MODELS = [
 
 
 class VertexAIImageGenerator(ControlNode):
-    # Class-level cache for GCS clients
-    _gcs_client_cache: ClassVar[dict[str, Any]] = {}
+    """Deprecated placeholder for Imagen image generation.
+
+    Google has removed every Imagen endpoint, so no configuration of this node can succeed. It
+    keeps its full parameter surface anyway: saved workflows set these parameters by name on
+    load, so dropping them would break loading for the whole workflow rather than just this node.
+
+    Submission is left to fail against the provider rather than being refused here, so what the
+    artist sees is the real response. The deprecation message and the two migrate buttons are the
+    part that has to be explained up front; the buttons rebuild the node as an image node that
+    still works, carrying over values and connections. See `_image_migration` for the mappings.
+    """
 
     # Service constants for configuration
     SERVICE = "GoogleAI"
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
+        self.description = (
+            f"Deprecated: Google retired Imagen on {IMAGEN_4_RETIREMENT_DATE_TEXT}. Migrate to another image node."
+        )
+
+        # Added first so the deprecation and its remedy are the first things on the node,
+        # ahead of the settings that no longer reach a live model.
+        self.add_node_element(
+            ParameterMessage(
+                name="retirement_message",
+                title="Imagen is retired and this node cannot generate images",
+                value=RETIREMENT_MESSAGE,
+                variant="error",
+            )
+        )
+        self.add_parameter(
+            ParameterButton(
+                name="migrate_to_nano_banana_2",
+                label=f"Migrate to {NANO_BANANA_2_TARGET.display_name}",
+                icon="replace",
+                variant="default",
+                full_width=True,
+                tooltip="Gemini 3.1 Flash Image. Closest match: fast, general-purpose image generation.",
+                on_click=self._on_migrate_to_nano_banana_2_clicked,
+            )
+        )
+        self.add_parameter(
+            ParameterButton(
+                name="migrate_to_nano_banana_pro",
+                label=f"Migrate to {NANO_BANANA_PRO_TARGET.display_name}",
+                icon="replace",
+                variant="default",
+                full_width=True,
+                tooltip="Gemini 3 Pro Image. Higher quality and up to 4K output, at a higher cost.",
+                on_click=self._on_migrate_to_nano_banana_pro_clicked,
+            )
+        )
 
         # Main Parameters - matching text-to-video node order
         self.add_parameter(
@@ -216,33 +297,32 @@ class VertexAIImageGenerator(ControlNode):
         logger.info(message)
         self.append_value_to_parameter("logs", message + "\n")
 
-    def _get_gcs_client(self, project_id: str, credentials):
-        """Get a cached or new GCS client."""
-        if project_id in self._gcs_client_cache:
-            return self._gcs_client_cache[project_id]
-        client = storage.Client(project=project_id, credentials=credentials)
-        self._gcs_client_cache[project_id] = client
-        return client
+    def _on_migrate_to_nano_banana_2_clicked(
+        self,
+        button: Button,  # noqa: ARG002
+        button_details: ButtonDetailsMessagePayload,  # noqa: ARG002
+    ) -> NodeMessageResult:
+        return self._migrate(NANO_BANANA_2_TARGET)
 
-    def _download_from_gcs(self, gcs_uri: str, project_id: str, credentials) -> bytes:
-        """Download video from GCS URI and return bytes."""
-        self._log(f"📥 Downloading from GCS URI: {gcs_uri}")
+    def _on_migrate_to_nano_banana_pro_clicked(
+        self,
+        button: Button,  # noqa: ARG002
+        button_details: ButtonDetailsMessagePayload,  # noqa: ARG002
+    ) -> NodeMessageResult:
+        return self._migrate(NANO_BANANA_PRO_TARGET)
 
-        if not gcs_uri.startswith("gs://"):
-            raise ValueError(f"Invalid GCS URI: {gcs_uri}")
+    def _migrate(self, target: MigrationTarget) -> NodeMessageResult:
+        try:
+            outcome = migrate_image_node(self, target, IMAGEN_SOURCE)
+        except RuntimeError as e:
+            # Nothing was created or rewired on this path, so the graph is untouched.
+            return NodeMessageResult(success=False, details=str(e), altered_workflow_state=False)
+        # Module logger, not self._log: the node has been deleted by now, so writing to its `logs`
+        # output would publish an update for something the editor has already removed.
+        logger.info("Migrated '%s' to '%s' (%s)", self.name, outcome.new_node_name, outcome.display_name)
+        return NodeMessageResult(success=True, details=outcome.summary())
 
-        path_parts = gcs_uri[5:].split("/", 1)
-        bucket_name = path_parts[0]
-        blob_path = path_parts[1]
-
-        storage_client = self._get_gcs_client(project_id, credentials)
-
-        bucket = storage_client.bucket(bucket_name)
-        blob = bucket.blob(blob_path)
-
-        return blob.download_as_bytes()
-
-    def _create_image_artifact(self, image_bytes: bytes, output_format: str) -> ImageUrlArtifact:
+    def _create_image_artifact(self, image_bytes: bytes) -> ImageUrlArtifact:
         """Create ImageUrlArtifact using project-aware file saving."""
         try:
             saved = self._output_file.build_file().write_bytes(image_bytes)
@@ -302,7 +382,7 @@ class VertexAIImageGenerator(ControlNode):
                         self._log(f"✅ Retrieved image bytes: {len(image_bytes)} bytes")
 
                         # Create the image artifact
-                        generated_image = self._create_image_artifact(image_bytes, output_mime_type)
+                        generated_image = self._create_image_artifact(image_bytes)
                         self._log(f"✅ Created image artifact: {generated_image}")
 
                         # Set the output parameter
@@ -314,23 +394,29 @@ class VertexAIImageGenerator(ControlNode):
             else:
                 self._log("❌ No generated images found in response")
         except Exception as e:
-            self._log(f"❌ An unexpected error occurred during image generation: {e}")
-            import traceback
-
-            self._log(traceback.format_exc())
+            self._log(f"❌ Image generation failed: {e}")
             raise
 
     def process(self) -> AsyncResult[None]:
         yield lambda: self._process()
 
-    def _process(self):
-        if not GOOGLE_INSTALLED:
-            self.append_value_to_parameter(
-                "logs",
-                "ERROR: Required Google libraries are not installed. Please add 'google-auth', 'google-cloud-aiplatform', 'google-cloud-storage', 'google-genai' to your library's dependencies.",
-            )
-            return
+    def validate_before_node_run(self) -> list[Exception] | None:
+        """Reject a run that cannot possibly produce an image."""
+        exceptions: list[Exception] = []
 
+        if not GOOGLE_INSTALLED:
+            exceptions.append(
+                ImportError(
+                    f"{self.name}: the Google libraries are not installed. Add 'google-auth' and "
+                    "'google-genai' to this library's dependencies."
+                )
+            )
+        if not self.get_parameter_value("prompt"):
+            exceptions.append(ValueError(f"{self.name}: a prompt is required."))
+
+        return exceptions or None
+
+    def _process(self):
         # Get input values
         prompt = self.get_parameter_value("prompt")
         model = self.get_parameter_value("model")
@@ -347,21 +433,20 @@ class VertexAIImageGenerator(ControlNode):
         person_generation = self.get_parameter_value("person_generation")
         enhance_prompt = self.get_parameter_value("enhance_prompt")
 
-        # Validate inputs
-        if not prompt:
-            self._log("ERROR: Prompt is a required input.")
-            return
-
+        # Only the credentials lookup counts as an auth failure; a ValueError raised later in
+        # the run is not a credentials problem and must not be reported as one.
         try:
-            # Use GoogleAuthHelper for authentication
             credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
                 GriptapeNodes.SecretsManager(), log_func=self._log
             )
+        except ValueError as e:
+            self.parameter_output_values["image"] = None
+            self._log(f"❌ Configuration error: {e}")
+            msg = f"{self.name}: could not authenticate to Google Cloud. {e} {CREDENTIALS_HELP}"
+            raise RuntimeError(msg) from e
 
+        try:
             self._log(f"Project ID: {final_project_id}")
-            self._log("Initializing Vertex AI...")
-            aiplatform.init(project=final_project_id, location=location, credentials=credentials)
-
             self._log("Initializing Generative AI Client...")
             client = genai.Client(vertexai=True, project=final_project_id, location=location, credentials=credentials)
 
@@ -384,14 +469,8 @@ class VertexAIImageGenerator(ControlNode):
                 enhance_prompt,
             )
 
-        except ValueError as e:
-            self._log(f"❌ CONFIGURATION ERROR: {e}")
-            self._log("💡 Please set up Google Cloud credentials in the library settings:")
-            self._log("   - GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH (recommended, path to workload identity config)")
-            self._log("   - OR GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
-            self._log("   - OR GOOGLE_CLOUD_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON")
         except Exception as e:
-            self._log(f"❌ An unexpected error occurred: {e}")
-            import traceback
-
-            self._log(traceback.format_exc())
+            self.parameter_output_values["image"] = None
+            self._log(f"❌ Image generation failed: {e}")
+            msg = f"{self.name}: Imagen image generation failed. {e}"
+            raise RuntimeError(msg) from e

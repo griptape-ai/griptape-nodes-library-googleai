@@ -1,15 +1,33 @@
-import logging
-from typing import Any
+from __future__ import annotations
 
+import logging
+from datetime import date
+from typing import TYPE_CHECKING, Any
+
+from _image_migration import (
+    NANO_BANANA_2_TARGET,
+    NANO_BANANA_PRO_TARGET,
+    NANO_BANANA_SOURCE,
+    MigrationTarget,
+    migrate_image_node,
+)
 from griptape.artifacts import (
     BlobArtifact,
     ImageArtifact,
     ImageUrlArtifact,
     TextArtifact,
 )
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import (
+    NodeMessageResult,
+    Parameter,
+    ParameterGroup,
+    ParameterList,
+    ParameterMessage,
+    ParameterMode,
+)
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
+from griptape_nodes.exe_types.param_types.parameter_button import ParameterButton
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
@@ -18,29 +36,57 @@ from griptape_nodes.traits.options import Options
 
 try:
     from google import genai
-    from google.cloud import aiplatform
     from google.genai import types
 
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
 
-from googleai_utils import GoogleAuthHelper, detect_image_mime_from_bytes, validate_and_maybe_shrink_image
+from googleai_utils import (
+    CREDENTIALS_HELP,
+    GoogleAuthHelper,
+    detect_image_mime_from_bytes,
+    validate_and_maybe_shrink_image,
+)
+
+if TYPE_CHECKING:
+    from griptape_nodes.traits.button import Button, ButtonDetailsMessagePayload
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
-MODELS = []
+MODEL = "gemini-2.5-flash-image"
+
+# Google shuts this model down on this date and names gemini-3.1-flash-image as the successor.
+# https://ai.google.dev/gemini-api/docs/deprecations
+RETIREMENT_DATE = date(2026, 10, 2)
+# Spelled-out month, so no reader has to guess whether 10-02 is day-month or month-day.
+RETIREMENT_DATE_TEXT = RETIREMENT_DATE.strftime("%d %B %Y")
+
+RETIREMENT_MESSAGE = (
+    f"Google removes {MODEL} on {RETIREMENT_DATE_TEXT}. It is the only model this node can use, "
+    "so the node cannot generate images after that date.\n\n"
+    "Use one of the buttons below to migrate to a still-supported image generation node. Your "
+    "prompt, settings, connections, and canvas position carry over, and this node is removed. "
+    "Reference images have to be re-added on the new node."
+)
 
 
 class GeminiImageGenerator(ControlNode):
-    """Gemini-only image generation node for Vertex AI (Gemini 2.5 Flash Image).
+    """Deprecated placeholder for Nano Banana (Gemini 2.5 Flash Image) generation.
 
-    - Location is 'global'.
+    Google removes the node's only model on 2026-10-02. It keeps its full parameter surface
+    anyway: saved workflows set these parameters by name on load, so dropping them would break
+    loading for the whole workflow rather than just this node.
+
+    Submission is left to fail against the provider rather than being refused here, so what the
+    artist sees is the real response. The deprecation message and the two migrate buttons are the
+    part that has to be explained up front; the buttons rebuild the node as an image node that
+    still works, carrying over values and connections. See `_image_migration` for the mappings.
+
     - Supports text prompt + up to 3 input images (≤ 7 MB each; png/jpeg/webp)
-      and up to 3 input documents (≤ 50 MB each; pdf/txt).
+      and up to 3 input documents (≤ 7 MB each; pdf/txt).
     - Uses GenerateContent with response_modalities=["IMAGE","TEXT"].
     - Returns the FIRST generated image as ImageUrlArtifact (parameter 'image').
-    - Streams/logs info; captures any returned text to logs for visibility.
     """
 
     SERVICE = "GoogleAI"
@@ -55,6 +101,42 @@ class GeminiImageGenerator(ControlNode):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
+        self.description = (
+            f"Deprecated: Google removes {MODEL} on {RETIREMENT_DATE_TEXT}. Migrate to another image node."
+        )
+
+        # Added first so the deprecation and its remedy are the first things on the node,
+        # ahead of the settings that will stop working.
+        self.add_node_element(
+            ParameterMessage(
+                name="retirement_message",
+                title=f"Nano Banana is deprecated and stops working on {RETIREMENT_DATE_TEXT}",
+                value=RETIREMENT_MESSAGE,
+                variant="error",
+            )
+        )
+        self.add_parameter(
+            ParameterButton(
+                name="migrate_to_nano_banana_2",
+                label=f"Migrate to {NANO_BANANA_2_TARGET.display_name}",
+                icon="replace",
+                variant="default",
+                full_width=True,
+                tooltip="Gemini 3.1 Flash Image. Closest match: Google's named successor to this model.",
+                on_click=self._on_migrate_to_nano_banana_2_clicked,
+            )
+        )
+        self.add_parameter(
+            ParameterButton(
+                name="migrate_to_nano_banana_pro",
+                label=f"Migrate to {NANO_BANANA_PRO_TARGET.display_name}",
+                icon="replace",
+                variant="default",
+                full_width=True,
+                tooltip="Gemini 3 Pro Image. Higher quality and up to 4K output, at a higher cost.",
+                on_click=self._on_migrate_to_nano_banana_pro_clicked,
+            )
+        )
 
         # ===== Core configuration =====
         self.add_parameter(
@@ -101,7 +183,7 @@ class GeminiImageGenerator(ControlNode):
         self.add_parameter(
             ParameterList(
                 name="input_files",
-                tooltip="Up to 3 input files (pdf/txt, ≤ 50 MB each). Text content from these documents is extracted and included as additional context in the prompt to guide image generation.",
+                tooltip="Up to 3 input files (pdf/txt, ≤ 7 MB each). Text content from these documents is extracted and included as additional context in the prompt to guide image generation.",
                 input_types=["BlobArtifact", "TextArtifact"],
                 allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
             )
@@ -196,15 +278,44 @@ class GeminiImageGenerator(ControlNode):
         logger.info(message)
         self.append_value_to_parameter("logs", message + "\n")
 
-    def _reset_outputs(self) -> None:
-        """Clear output parameters so stale values don't persist across re-adds/reruns."""
+    def _on_migrate_to_nano_banana_2_clicked(
+        self,
+        button: Button,  # noqa: ARG002
+        button_details: ButtonDetailsMessagePayload,  # noqa: ARG002
+    ) -> NodeMessageResult:
+        return self._migrate(NANO_BANANA_2_TARGET)
+
+    def _on_migrate_to_nano_banana_pro_clicked(
+        self,
+        button: Button,  # noqa: ARG002
+        button_details: ButtonDetailsMessagePayload,  # noqa: ARG002
+    ) -> NodeMessageResult:
+        return self._migrate(NANO_BANANA_PRO_TARGET)
+
+    def _migrate(self, target: MigrationTarget) -> NodeMessageResult:
         try:
-            self.parameter_output_values["image"] = None
-            self.parameter_output_values["images"] = []
-            self.parameter_output_values["logs"] = ""
-        except Exception:
-            # Be defensive if the base class changes how outputs are stored
-            pass
+            outcome = migrate_image_node(self, target, NANO_BANANA_SOURCE)
+        except RuntimeError as e:
+            # Nothing was created or rewired on this path, so the graph is untouched.
+            return NodeMessageResult(success=False, details=str(e), altered_workflow_state=False)
+        # Module logger, not self._log: the node has been deleted by now, so writing to its `logs`
+        # output would publish an update for something the editor has already removed.
+        logger.info("Migrated '%s' to '%s' (%s)", self.name, outcome.new_node_name, outcome.display_name)
+        return NodeMessageResult(success=True, details=outcome.summary())
+
+    def _reset_outputs(self) -> None:
+        """Clear every output so stale values don't persist across re-adds/reruns."""
+        self._clear_image_outputs()
+        self.parameter_output_values["logs"] = ""
+
+    def _clear_image_outputs(self) -> None:
+        """Clear the image outputs but keep the logs.
+
+        The failure paths use this rather than `_reset_outputs`: the log is the only record of
+        what went wrong, so emptying it on the way to raising would discard the explanation.
+        """
+        self.parameter_output_values["image"] = None
+        self.parameter_output_values["images"] = []
 
     def _create_image_artifact(self, image_bytes: bytes, mime_type: str) -> ImageUrlArtifact:
         saved = self._output_file.build_file().write_bytes(image_bytes)
@@ -312,7 +423,8 @@ class GeminiImageGenerator(ControlNode):
                 if len(b) > self.MAX_DOC_BYTES:
                     doc_name = getattr(doc_art, "name", f"document_{doc_idx + 1}")
                     size_mb = len(b) / (1024 * 1024)
-                    error_msg = f"❌ Document '{doc_name}' size {size_mb:.1f} MB exceeds maximum allowed size of 50 MB"
+                    limit_mb = self.MAX_DOC_BYTES / (1024 * 1024)
+                    error_msg = f"❌ Document '{doc_name}' size {size_mb:.1f} MB exceeds the {limit_mb:.0f} MB limit"
                     self._log(error_msg)
                     raise ValueError(error_msg)
                 # SDK format: types.Part with inline_data
@@ -334,12 +446,14 @@ class GeminiImageGenerator(ControlNode):
         self._log(f"  • Candidate count: {eff_candidates}")
         self._log(f"  • Aspect ratio: {aspect_ratio}")
 
-        # Build generation config
+        # Build generation config. Aspect ratio travels in ImageConfig, not on the top-level
+        # config, so passing it alongside temperature would be silently dropped.
         config = types.GenerateContentConfig(
             temperature=float(temperature),
             top_p=float(top_p),
             candidate_count=eff_candidates,
             response_modalities=["TEXT", "IMAGE"],
+            image_config=types.ImageConfig(aspect_ratio=aspect_ratio),
         )
 
         self._log("🧠 Calling Gemini generateContent API...")
@@ -394,19 +508,34 @@ class GeminiImageGenerator(ControlNode):
     def process(self) -> AsyncResult[None]:
         yield lambda: self._process()
 
+    def validate_before_node_run(self) -> list[Exception] | None:
+        """Reject a run that cannot possibly produce an image."""
+        exceptions: list[Exception] = []
+
+        if not GOOGLE_INSTALLED:
+            exceptions.append(
+                ImportError(
+                    f"{self.name}: the Google libraries are not installed. Add 'google-auth' and "
+                    "'google-genai' to this library's dependencies."
+                )
+            )
+        has_any_input = (
+            self.get_parameter_value("prompt")
+            or self.get_parameter_value("input_images")
+            or self.get_parameter_value("input_files")
+        )
+        if not has_any_input:
+            exceptions.append(ValueError(f"{self.name}: provide at least a prompt, an image, or a file."))
+
+        return exceptions or None
+
     def _process(self):
         # Clear outputs at the start of each run
         self._reset_outputs()
-        if not GOOGLE_INSTALLED:
-            self._log("ERROR: Missing Google libraries. Install `google-genai`, `google-cloud-aiplatform`.")
-            return
 
         # Inputs
         prompt = self.get_parameter_value("prompt")
         location = self.get_parameter_value("location")
-
-        # Model is hardcoded (preview version is deprecated)
-        model = "gemini-2.5-flash-image"
         aspect_ratio = self.get_parameter_value("aspect_ratio")
 
         input_images = self.get_parameter_value("input_images")
@@ -417,30 +546,28 @@ class GeminiImageGenerator(ControlNode):
         top_p = self.get_parameter_value("top_p")
         candidate_count = self.get_parameter_value("candidate_count")
 
-        if not prompt and not input_images and not input_files:
-            # Clear outputs on validation failure
-            self.parameter_output_values["image"] = None
-            self.parameter_output_values["images"] = []
-            self._log("❌ Provide at least a prompt, an image, or a file.")
-            return
-
+        # Only the credentials lookup counts as an auth failure. A ValueError raised later in the
+        # run — a pydantic config rejection, or a file destination with no filename — is not a
+        # credentials problem and must not be reported as one.
         try:
-            # Use GoogleAuthHelper for authentication
             credentials, project_id = GoogleAuthHelper.get_credentials_and_project(
                 GriptapeNodes.SecretsManager(), log_func=self._log
             )
+        except ValueError as e:
+            self._clear_image_outputs()
+            self._log(f"❌ Configuration error: {e}")
+            msg = f"{self.name}: could not authenticate to Google Cloud. {e} {CREDENTIALS_HELP}"
+            raise RuntimeError(msg) from e
 
+        try:
             self._log(f"Project ID: {project_id}")
-            self._log("Initializing Vertex AI...")
-            aiplatform.init(project=project_id, location=location, credentials=credentials)
-
             self._log("Initializing Generative AI Client (Vertex AI)...")
             client = genai.Client(vertexai=True, project=project_id, location=location, credentials=credentials)
 
             self._log("🚀 Starting Gemini image generation...")
             self._generate_and_process(
                 client=client,
-                model=model,
+                model=MODEL,
                 prompt=prompt,
                 input_images=input_images,
                 input_files=input_files,
@@ -451,17 +578,8 @@ class GeminiImageGenerator(ControlNode):
                 auto_image_resize=auto_image_resize,
             )
 
-        except ValueError as e:
-            self._log(f"❌ CONFIGURATION ERROR: {e}")
-            self._log("💡 Please set up Google Cloud credentials in the library settings:")
-            self._log("   - GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH (recommended, path to workload identity config)")
-            self._log("   - OR GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
-            self._log("   - OR GOOGLE_CLOUD_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON")
         except Exception as e:
-            self._log(f"❌ Error: {e}")
-            import traceback
-
-            self._log(traceback.format_exc())
-            # Ensure stale outputs aren't left behind on errors
-            self.parameter_output_values["image"] = None
-            self.parameter_output_values["images"] = []
+            self._clear_image_outputs()
+            self._log(f"❌ Image generation failed: {e}")
+            msg = f"{self.name}: Gemini image generation failed. {e}"
+            raise RuntimeError(msg) from e
