@@ -1,7 +1,21 @@
 from typing import Any
 
 from griptape_nodes.exe_types.core_types import Parameter, ParameterMode
-from griptape_nodes.exe_types.node_types import AsyncResult, DataNode
+from griptape_nodes.exe_types.node_types import DataNode
+
+# The per-cell outputs are declared up front rather than grown to fit the incoming list, because
+# adding or removing parameters from inside `process` only mutates the transient node the worker
+# built for that run and never reaches the orchestrator's authoritative copy.
+GRID_COLUMNS = 2
+GRID_ROWS = 4
+MAX_CELLS = GRID_COLUMNS * GRID_ROWS
+
+
+def _cell_name(index: int) -> str:
+    """Grid parameter name for the nth video, filling left to right, top to bottom."""
+    row = (index // GRID_COLUMNS) + 1
+    col = (index % GRID_COLUMNS) + 1
+    return f"video_{row}_{col}"
 
 
 class VideoDisplayNode(DataNode):
@@ -15,19 +29,19 @@ class VideoDisplayNode(DataNode):
     ) -> None:
         super().__init__(name, metadata)
 
-        # Add parameter using your EXACT grid specification
-        grid_param = Parameter(
-            name="videos",
-            type="list",
-            default_value=value or [],
-            input_types=["list", "list[VideoUrlArtifact]"],  # Accept both types
-            tooltip="The list of videos to display",
-            ui_options={"display": "grid", "columns": 2, "pulse_on_run": True},
-            allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY},
+        self.add_parameter(
+            Parameter(
+                name="videos",
+                type="list",
+                default_value=value or [],
+                input_types=["list", "list[VideoUrlArtifact]"],
+                output_type="list[VideoUrlArtifact]",
+                tooltip="The list of videos to display",
+                ui_options={"display": "grid", "columns": GRID_COLUMNS, "pulse_on_run": True},
+                allowed_modes={ParameterMode.INPUT, ParameterMode.PROPERTY, ParameterMode.OUTPUT},
+            )
         )
-        self.add_parameter(grid_param)
 
-        # Add status parameter for debugging (input only)
         self.add_parameter(
             Parameter(
                 name="status",
@@ -35,72 +49,59 @@ class VideoDisplayNode(DataNode):
                 default_value="",
                 tooltip="Status and debug information",
                 ui_options={"multiline": True},
-                allowed_modes={ParameterMode.PROPERTY},
+                allowed_modes={ParameterMode.OUTPUT},
             )
         )
 
-        # Output parameters will be added dynamically when videos arrive
-
-    def process(self) -> AsyncResult[None]:
-        yield lambda: self._process()
-
-    def _process(self):
-        # Get the input videos using regular parameter method
-        videos = self.get_parameter_value("videos")
-
-        # First, dynamically add output parameters based on video count
-        if videos:
-            video_count = len(videos)
-
-            # Remove any existing video output parameters first
-            params_to_remove = [param for param in self.parameters if param.name.startswith("video_")]
-            for param in params_to_remove:
-                self.parameters.remove(param)
-
-            # Add parameters for each video
-            for i in range(video_count):
-                row = (i // 2) + 1  # Row: 1, 1, 2, 2, 3, 3...
-                col = (i % 2) + 1  # Col: 1, 2, 1, 2, 1, 2...
-                param_name = f"video_{row}_{col}"
-
-                self.add_parameter(
-                    Parameter(
-                        name=param_name,
-                        type="VideoUrlArtifact",
-                        output_type="VideoUrlArtifact",
-                        tooltip=f"Video at grid position [{row},{col}]",
-                        ui_options={"hide_property": True},
-                        allowed_modes={ParameterMode.OUTPUT},
-                    )
+        for index in range(MAX_CELLS):
+            self.add_parameter(
+                Parameter(
+                    name=_cell_name(index),
+                    type="VideoUrlArtifact",
+                    output_type="VideoUrlArtifact",
+                    tooltip=f"Video at grid position {_cell_name(index).removeprefix('video_').replace('_', ',')}",
+                    ui_options={"hide_property": True},
+                    allowed_modes={ParameterMode.OUTPUT},
                 )
+            )
 
-        # Debug logging - this was working!
-        status_msg = f"📥 Received {len(videos) if videos else 0} videos\n"
+        self._update_cell_visibility(self.get_parameter_value("videos"))
 
-        if videos:
-            for i, video in enumerate(videos):
-                if hasattr(video, "value"):
-                    status_msg += f"🎬 Video {i + 1}: {video.value}\n"
-                    status_msg += f"   Type: {type(video).__name__}\n"
-                    if hasattr(video, "mime_type"):
-                        status_msg += f"   MIME: {video.mime_type}\n"
-                else:
-                    status_msg += f"⚠️ Video {i + 1}: {video} (no .value attribute)\n"
-        else:
-            status_msg += "❌ No videos received or videos is None\n"
+    def after_value_set(self, parameter: Parameter, value: Any) -> None:
+        """Show only as many grid cells as there are videos."""
+        if parameter.name == "videos":
+            self._update_cell_visibility(value)
+        return super().after_value_set(parameter, value)
 
-        # Set grid inputs and individual video outputs
+    def process(self) -> None:
+        videos = self.get_parameter_value("videos") or []
+
+        status_lines = [f"📥 Received {len(videos)} video(s)"]
+        for index, video in enumerate(videos):
+            if hasattr(video, "value"):
+                status_lines.append(f"🎬 Video {index + 1}: {video.value} ({type(video).__name__})")
+            else:
+                status_lines.append(f"⚠️ Video {index + 1}: {video} (no .value attribute)")
+        if len(videos) > MAX_CELLS:
+            status_lines.append(
+                f"ℹ️ Only the first {MAX_CELLS} videos get their own output; all {len(videos)} are in 'videos'."
+            )
+
         self.parameter_output_values["videos"] = videos
 
-        # Assign each video to its grid position output
-        for i, video in enumerate(videos):
-            row = (i // 2) + 1  # Row: 1, 1, 2, 2, 3, 3...
-            col = (i % 2) + 1  # Col: 1, 2, 1, 2, 1, 2...
-            param_name = f"video_{row}_{col}"
-            self.parameter_output_values[param_name] = video
+        # Every cell is assigned on every run: a cell left holding the previous run's video would
+        # keep feeding a stale artifact downstream after the list got shorter.
+        for index in range(MAX_CELLS):
+            self.parameter_output_values[_cell_name(index)] = videos[index] if index < len(videos) else None
 
-        # Update status for debugging
-        self.parameter_output_values["status"] = status_msg
-
-        # Trigger UI refresh for the videos parameter
+        self.parameter_output_values["status"] = "\n".join(status_lines)
         self.publish_update_to_parameter("videos", videos)
+
+    def _update_cell_visibility(self, videos: Any) -> None:
+        """Reveal one grid cell per video, hiding the rest."""
+        count = len(videos) if isinstance(videos, list) else 0
+        for index in range(MAX_CELLS):
+            if index < count:
+                self.show_parameter_by_name(_cell_name(index))
+            else:
+                self.hide_parameter_by_name(_cell_name(index))

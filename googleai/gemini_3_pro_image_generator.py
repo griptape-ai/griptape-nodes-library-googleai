@@ -2,6 +2,7 @@ import logging
 from typing import Any
 
 from googleai_utils import (
+    CREDENTIALS_HELP,
     GoogleAuthHelper,
     detect_image_mime_from_bytes,
     validate_and_maybe_shrink_image,
@@ -24,32 +25,16 @@ try:
     from PIL import Image as PILImage
 
     PIL_INSTALLED = True
-except Exception:
+except ImportError:
     PIL_INSTALLED = False
 
 try:
     from google import genai
-    from google.cloud import aiplatform
     from google.genai import types
 
-    GOOGLE_GENAI_VERSION = getattr(genai, "__version__", "unknown")
-
-    # Try to import ImageConfig explicitly (available in google-genai >= 1.40.0)
-    try:
-        from google.genai.types import ImageConfig as _ImageConfig  # noqa: F401
-
-        IMAGE_CONFIG_AVAILABLE = True
-        del _ImageConfig  # Only used for availability check
-    except (ImportError, AttributeError) as e:
-        logger.error(f"ImageConfig not available: {e}")
-        IMAGE_CONFIG_AVAILABLE = False
-
     GOOGLE_INSTALLED = True
-except ImportError as e:
-    logger.error(f"Google libraries not installed: {e}")
+except ImportError:
     GOOGLE_INSTALLED = False
-    IMAGE_CONFIG_AVAILABLE = False
-    GOOGLE_GENAI_VERSION = "not installed"
 
 VERTEX_AI = "Vertex AI"
 AI_STUDIO_API = "AI Studio API"
@@ -274,16 +259,21 @@ class NanoBananaProImageGenerator(ControlNode):
         self.append_value_to_parameter("logs", message + "\n")
 
     def _reset_outputs(self) -> None:
-        """Clear output parameters so stale values don't persist across re-adds/reruns."""
-        try:
-            self.parameter_output_values["image"] = None
-            self.parameter_output_values["images"] = []
-            self.parameter_output_values["text"] = ""
-            self.parameter_output_values["logs"] = ""
-        except Exception:
-            pass
+        """Clear every output so stale values don't persist across re-adds/reruns."""
+        self._clear_image_outputs()
+        self.parameter_output_values["logs"] = ""
 
-    def _create_image_artifact(self, image_bytes: bytes, mime_type: str) -> ImageUrlArtifact:
+    def _clear_image_outputs(self) -> None:
+        """Clear the image outputs but keep the logs.
+
+        The failure paths use this rather than `_reset_outputs`: the log is the only record of
+        what went wrong, so emptying it on the way to raising would discard the explanation.
+        """
+        self.parameter_output_values["image"] = None
+        self.parameter_output_values["images"] = []
+        self.parameter_output_values["text"] = ""
+
+    def _create_image_artifact(self, image_bytes: bytes) -> ImageUrlArtifact:
         saved = self._output_file.build_file().write_bytes(image_bytes)
         return ImageUrlArtifact(value=saved.location, name=saved.location)
 
@@ -407,33 +397,12 @@ class NanoBananaProImageGenerator(ControlNode):
                 self._log(f"⚠️ Could not enable Google Search: {e}")
                 self._log("💡 Google Search may require a specific API version or configuration")
 
-        # Try to add image config if ImageConfig is available
-        try:
-            if IMAGE_CONFIG_AVAILABLE:
-                # Use ImageConfig class (preferred method from notebook)
-                image_config = types.ImageConfig(
-                    aspect_ratio=aspect_ratio,
-                    image_size=image_size,
-                )
-                config_kwargs["image_config"] = image_config
-            # Try accessing ImageConfig from types namespace directly
-            # (it might exist even if direct import failed)
-            elif hasattr(types, "ImageConfig"):
-                image_config = types.ImageConfig(
-                    aspect_ratio=aspect_ratio,
-                    image_size=image_size,
-                )
-                config_kwargs["image_config"] = image_config
-            else:
-                # ImageConfig not available - skip image config
-                self._log("⚠️ ImageConfig not available - aspect_ratio and image_size will be ignored")
-                self._log(f"💡 Current google-genai version: {GOOGLE_GENAI_VERSION}")
-                self._log("💡 Ensure google-genai >= 1.40.0 is installed for image config support")
-        except (AttributeError, TypeError) as e:
-            # ImageConfig doesn't exist or can't be created - skip it
-            self._log(f"⚠️ Could not create ImageConfig: {e}")
-            self._log("💡 Image generation will proceed without aspect_ratio/image_size control")
-            self._log("💡 Ensure google-genai >= 1.40.0 is installed for full image config support")
+        # Aspect ratio and output size travel in ImageConfig rather than on the top-level
+        # config, where they would be rejected as unknown fields.
+        config_kwargs["image_config"] = types.ImageConfig(
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+        )
 
         config = types.GenerateContentConfig(**config_kwargs)
 
@@ -460,9 +429,6 @@ class NanoBananaProImageGenerator(ControlNode):
         except Exception as e:
             error_msg = str(e)
             self._log(f"❌ API call failed: {error_msg}")
-            import traceback
-
-            self._log(traceback.format_exc())
             raise
 
         self._log("📦 Processing response...")
@@ -518,7 +484,7 @@ class NanoBananaProImageGenerator(ControlNode):
                     )
 
                     # Create artifact
-                    art = self._create_image_artifact(image_bytes, mime_type)
+                    art = self._create_image_artifact(image_bytes)
                     all_images.append(art)
 
                 # Handle as_image() method - older structure
@@ -533,17 +499,16 @@ class NanoBananaProImageGenerator(ControlNode):
                             )
 
                             # Create artifact
-                            art = self._create_image_artifact(image_bytes, mime_type)
+                            art = self._create_image_artifact(image_bytes)
                             all_images.append(art)
-                    except Exception:
-                        pass
+                    except (AttributeError, ValueError) as e:
+                        # A part that advertises as_image() but cannot produce bytes is not an
+                        # image part; say so rather than dropping it without a trace.
+                        self._log(f"ℹ️ Part {idx + 1}: as_image() yielded no image ({e}){thought_label}")
                 else:
                     self._log(f"ℹ️ Part {idx + 1}: Unknown type (skipping){thought_label}")
             except Exception as e:
                 self._log(f"⚠️ Error processing part {idx + 1}: {e}")
-                import traceback
-
-                self._log(traceback.format_exc())
 
         # Set outputs
         if all_images:
@@ -566,30 +531,34 @@ class NanoBananaProImageGenerator(ControlNode):
             self._log(f"📝 Text response saved ({len(combined_text)} characters).")
 
     # ---------- Node entrypoints ----------
+    def validate_before_node_run(self) -> list[Exception] | None:
+        """Reject a run that cannot possibly produce an image."""
+        exceptions: list[Exception] = []
+
+        if not GOOGLE_INSTALLED:
+            exceptions.append(
+                ImportError(f"{self.name}: 'google-genai' is not installed. Add it to this library's dependencies.")
+            )
+        if not PIL_INSTALLED:
+            exceptions.append(
+                ImportError(f"{self.name}: 'pillow' is not installed. Add it to this library's dependencies.")
+            )
+        has_any_image = (
+            self.get_parameter_value("reference_images")
+            or self.get_parameter_value("object_images")
+            or self.get_parameter_value("human_images")
+        )
+        if not self.get_parameter_value("prompt") and not has_any_image:
+            exceptions.append(ValueError(f"{self.name}: provide at least a prompt or a reference image."))
+
+        return exceptions or None
+
     def process(self) -> AsyncResult[None]:
         yield lambda: self._process()
 
     def _process(self):
         # Clear outputs at the start of each run
         self._reset_outputs()
-
-        if not GOOGLE_INSTALLED:
-            self._log(
-                "ERROR: Required Google libraries are not installed. Please add 'google-genai' to your library's dependencies."
-            )
-            return
-
-        if not PIL_INSTALLED:
-            self._log("ERROR: Pillow is required to process images. Install 'Pillow' to enable.")
-            return
-
-        # Log version information
-        self._log(f"📦 google-genai version: {GOOGLE_GENAI_VERSION}")
-        if IMAGE_CONFIG_AVAILABLE:
-            self._log("✅ ImageConfig is available (aspect_ratio and image_size will be respected)")
-        else:
-            self._log("⚠️ ImageConfig is NOT available (requires google-genai >= 1.40.0)")
-            self._log("   → aspect_ratio and image_size parameters will be ignored")
 
         # Get input values
         api_provider = self.get_parameter_value("api_provider")
@@ -625,13 +594,9 @@ class NanoBananaProImageGenerator(ControlNode):
         self._log(f"📡 Using API provider: {api_provider}")
         self._log(f"🤖 Model: {model}")
 
-        # Validate inputs
-        if not prompt and not all_images:
-            self._log("❌ Provide at least a prompt or reference images.")
-            return
-
+        # Only the client construction counts as an auth failure; a ValueError raised later in the
+        # run is not a credentials problem and must not be reported as one.
         try:
-            # Authenticate based on API provider choice
             if api_provider == "AI Studio API":
                 # Use Google AI Studio API
                 api_key = GriptapeNodes.SecretsManager().get_secret(f"{self.API_KEY}")
@@ -652,12 +617,20 @@ class NanoBananaProImageGenerator(ControlNode):
                 )
 
                 self._log(f"Project ID: {project_id}")
-                self._log("Initializing Vertex AI...")
-                aiplatform.init(project=project_id, location=location, credentials=credentials)
 
                 self._log("Initializing Generative AI Client (Vertex AI)...")
                 client = genai.Client(vertexai=True, project=project_id, location=location, credentials=credentials)
 
+        except ValueError as e:
+            self._clear_image_outputs()
+            self._log(f"❌ Configuration error: {e}")
+            msg = (
+                f"{self.name}: could not authenticate to Google. {e} For the AI Studio API set "
+                f"GOOGLE_API_KEY (from https://aistudio.google.com/apikey). For Vertex AI, {CREDENTIALS_HELP}"
+            )
+            raise RuntimeError(msg) from e
+
+        try:
             self._log("🚀 Starting Gemini 3 Pro image generation...")
             self._generate_and_process(
                 client=client,
@@ -672,20 +645,8 @@ class NanoBananaProImageGenerator(ControlNode):
                 auto_image_resize=auto_image_resize,
             )
 
-        except ValueError as e:
-            self._log(f"❌ CONFIGURATION ERROR: {e}")
-            self._log("💡 Please set up credentials in the library settings:")
-            self._log("   For AI Studio API: GOOGLE_API_KEY (get from https://aistudio.google.com/apikey)")
-            self._log("   For Vertex AI:")
-            self._log("     - GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH (recommended, path to workload identity config)")
-            self._log("     - OR GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
-            self._log("     - OR GOOGLE_CLOUD_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON")
         except Exception as e:
-            self._log(f"❌ Error: {e}")
-            import traceback
-
-            self._log(traceback.format_exc())
-            # Ensure stale outputs aren't left behind on errors
-            self.parameter_output_values["image"] = None
-            self.parameter_output_values["images"] = []
-            self.parameter_output_values["text"] = ""
+            self._clear_image_outputs()
+            self._log(f"❌ Image generation failed: {e}")
+            msg = f"{self.name}: Gemini image generation failed. {e}"
+            raise RuntimeError(msg) from e

@@ -1,6 +1,6 @@
 {
     "name": "Google AI Library",
-    "library_schema_version": "0.1.0",
+    "library_schema_version": "0.11.0",
     "settings": [
         {
             "description": "Google Cloud authentication settings for AI services",
@@ -8,6 +8,7 @@
             "contents": {
                 "GOOGLE_CLOUD_BUCKET_NAME": "griptape-nodes",
                 "secrets_to_register": [
+                    "GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH",
                     "GOOGLE_SERVICE_ACCOUNT_FILE_PATH",
                     "GOOGLE_CLOUD_PROJECT_ID",
                     "GOOGLE_APPLICATION_CREDENTIALS_JSON",
@@ -18,28 +19,191 @@
     ],
     "metadata": {
         "author": "Griptape",
-        "description": "A Griptape Nodes library for interacting with Google AI services like Veo and Lyria.",
+        "description": "A Griptape Nodes library for interacting with Google AI services like Veo, Gemini and Lyria.",
         "url": "www.griptape.ai",
-        "library_version": "0.5.0",
-        "engine_version": "0.75.0",
+        "library_version": "0.6.0",
+        "engine_version": "0.98.0",
         "tags": [
             "Griptape",
             "Google",
             "AI",
             "Veo",
             "Lyria",
+            "Gemini",
             "Video Generation",
-            "Audio Generation"
+            "Audio Generation",
+            "Image Generation"
         ],
         "dependencies": {
             "pip_dependencies": [
-                "google-auth>=2.0.0",
+                "google-auth>=2.40.0",
                 "google-cloud-storage>=2.19.0",
-                "google-cloud-aiplatform>=1.0.0",
                 "google-genai>=2.10.0",
+                "pillow>=11.0.0",
                 "requests>=2.32.3"
             ]
-        }
+        },
+        "declarations": [
+            {
+                "type": "lifecycle_stage",
+                "stage": "STABLE"
+            },
+            {
+                "type": "model_catalog",
+                "providers": {
+                    "google": {
+                        "display_name": "Google",
+                        "terms_url": "https://policies.google.com/terms/generative-ai",
+                        "notes": "Reached through Vertex AI with service-account credentials, or through the AI Studio API with GOOGLE_API_KEY. Model ids are the same on both surfaces.",
+                        "models": {
+                            "veo_3_1_generate": {
+                                "display_name": "Veo 3.1",
+                                "family": "Veo 3.1",
+                                "provider_model_id": "veo-3.1-generate-001",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "veo_3_1_fast_generate": {
+                                "display_name": "Veo 3.1 Fast",
+                                "family": "Veo 3.1",
+                                "provider_model_id": "veo-3.1-fast-generate-001",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "veo_3_1_lite_generate": {
+                                "display_name": "Veo 3.1 Lite",
+                                "family": "Veo 3.1",
+                                "provider_model_id": "veo-3.1-lite-generate-001",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "gemini_2_5_flash_image": {
+                                "display_name": "Nano Banana (Gemini 2.5 Flash Image)",
+                                "family": "Gemini 2.5",
+                                "provider_model_id": "gemini-2.5-flash-image",
+                                "key_support": "REQUIRES_CUSTOMER_KEY",
+                                "notes": "Google shuts this model down on 2 October 2026. Retained so saved workflows still resolve; use Nano Banana 2 or Nano Banana Pro instead."
+                            },
+                            "gemini_3_pro_image": {
+                                "display_name": "Nano Banana Pro (Gemini 3 Pro Image)",
+                                "family": "Gemini 3",
+                                "provider_model_id": "gemini-3-pro-image",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "gemini_3_1_flash_image": {
+                                "display_name": "Nano Banana 2 (Gemini 3.1 Flash Image)",
+                                "family": "Gemini 3.1",
+                                "provider_model_id": "gemini-3.1-flash-image",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "gemini_3_1_flash_lite_image": {
+                                "display_name": "Nano Banana 2 Lite (Gemini 3.1 Flash-Lite Image)",
+                                "family": "Gemini 3.1",
+                                "provider_model_id": "gemini-3.1-flash-lite-image",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "gemini_omni_1_1_flash": {
+                                "display_name": "Gemini Omni 1.1 Flash",
+                                "family": "Gemini Omni",
+                                "provider_model_id": "gemini-omni-1.1-flash-preview",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "gemini_omni_flash": {
+                                "display_name": "Gemini Omni Flash",
+                                "family": "Gemini Omni",
+                                "provider_model_id": "gemini-omni-flash-preview",
+                                "key_support": "REQUIRES_CUSTOMER_KEY",
+                                "notes": "Superseded by Gemini Omni 1.1 Flash."
+                            },
+                            "lyria_002": {
+                                "display_name": "Lyria 2",
+                                "family": "Lyria 2",
+                                "provider_model_id": "lyria-002",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "lyria_3_pro": {
+                                "display_name": "Lyria 3 Pro",
+                                "family": "Lyria 3",
+                                "provider_model_id": "lyria-3-pro-preview",
+                                "key_support": "REQUIRES_CUSTOMER_KEY",
+                                "notes": "Full-length music generation. Preview, and gated: a project that is not allowlisted for it gets a 404."
+                            },
+                            "lyria_3_clip": {
+                                "display_name": "Lyria 3 Clip",
+                                "family": "Lyria 3",
+                                "provider_model_id": "lyria-3-clip-preview",
+                                "key_support": "REQUIRES_CUSTOMER_KEY",
+                                "notes": "Short clips and loops. Preview, and gated: a project that is not allowlisted for it gets a 404."
+                            },
+                            "gemini_3_8_flash": {
+                                "display_name": "Gemini 3.8 Flash",
+                                "family": "Gemini 3",
+                                "provider_model_id": "gemini-3.8-flash",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "gemini_3_7_flash": {
+                                "display_name": "Gemini 3.7 Flash",
+                                "family": "Gemini 3",
+                                "provider_model_id": "gemini-3.7-flash",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "gemini_3_6_flash": {
+                                "display_name": "Gemini 3.6 Flash",
+                                "family": "Gemini 3",
+                                "provider_model_id": "gemini-3.6-flash",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "gemini_3_5_flash": {
+                                "display_name": "Gemini 3.5 Flash",
+                                "family": "Gemini 3",
+                                "provider_model_id": "gemini-3.5-flash",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "gemini_3_5_flash_lite": {
+                                "display_name": "Gemini 3.5 Flash-Lite",
+                                "family": "Gemini 3",
+                                "provider_model_id": "gemini-3.5-flash-lite",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "gemini_3_1_pro": {
+                                "display_name": "Gemini 3.1 Pro",
+                                "family": "Gemini 3.1",
+                                "provider_model_id": "gemini-3.1-pro-preview",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "gemini_3_1_flash_lite": {
+                                "display_name": "Gemini 3.1 Flash-Lite",
+                                "family": "Gemini 3.1",
+                                "provider_model_id": "gemini-3.1-flash-lite",
+                                "key_support": "REQUIRES_CUSTOMER_KEY",
+                                "notes": "Google shuts this model down on 7 May 2027; gemini-3.5-flash-lite is the replacement."
+                            },
+                            "gemini_3_flash": {
+                                "display_name": "Gemini 3 Flash",
+                                "family": "Gemini 3",
+                                "provider_model_id": "gemini-3-flash-preview",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "gemini_2_5_pro": {
+                                "display_name": "Gemini 2.5 Pro",
+                                "family": "Gemini 2.5",
+                                "provider_model_id": "gemini-2.5-pro",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "gemini_2_5_flash": {
+                                "display_name": "Gemini 2.5 Flash",
+                                "family": "Gemini 2.5",
+                                "provider_model_id": "gemini-2.5-flash",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            },
+                            "gemini_2_5_flash_lite": {
+                                "display_name": "Gemini 2.5 Flash-Lite",
+                                "family": "Gemini 2.5",
+                                "provider_model_id": "gemini-2.5-flash-lite",
+                                "key_support": "REQUIRES_CUSTOMER_KEY"
+                            }
+                        }
+                    }
+                }
+            }
+        ]
     },
     "categories": [
         {
@@ -97,8 +261,25 @@
             "file_path": "imagen_image_generator.py",
             "metadata": {
                 "category": "image/googleai",
-                "description": "Generates images using Google's Imagen models.",
-                "display_name": "Imagen Image Generator"
+                "description": "Deprecated: Google has shut down every Imagen model this node offers. Migrate to Nano Banana 2 or Nano Banana Pro.",
+                "display_name": "Imagen Image Generator",
+                "tags": [
+                    "image",
+                    "imagen",
+                    "google",
+                    "retired",
+                    "deprecated"
+                ],
+                "deprecation": {
+                    "deprecation_message": "Google shut down the Imagen 4.0 models on 17 August 2026 and the Imagen 3.0 models on 10 November 2025. Every model in this node's dropdown now returns 404, so no configuration of it can generate an image. Open the node and use its migrate buttons to rebuild it as Nano Banana 2 or Nano Banana Pro, carrying over values and connections.",
+                    "removal_version": "0.8.0"
+                },
+                "declarations": [
+                    {
+                        "type": "lifecycle_stage",
+                        "stage": "DEPRECATED"
+                    }
+                ]
             }
         },
         {
@@ -106,8 +287,32 @@
             "file_path": "gemini_image_generator.py",
             "metadata": {
                 "category": "image/googleai",
-                "description": "Generates images using Google's Gemini 2.5 Flash model (Nano Banana).",
-                "display_name": "Nano Banana Image Generator"
+                "description": "Deprecated: Google removes Gemini 2.5 Flash Image on 2 October 2026. Migrate to Nano Banana 2 or Nano Banana Pro.",
+                "display_name": "Nano Banana Image Generator",
+                "tags": [
+                    "image",
+                    "gemini",
+                    "google",
+                    "nano banana",
+                    "retired",
+                    "deprecated"
+                ],
+                "deprecation": {
+                    "deprecation_message": "Google shuts down gemini-2.5-flash-image, the only model this node can use, on 2 October 2026. Open the node and use its migrate buttons to rebuild it as Nano Banana 2 or Nano Banana Pro, carrying over values and connections.",
+                    "removal_version": "0.8.0"
+                },
+                "declarations": [
+                    {
+                        "type": "lifecycle_stage",
+                        "stage": "DEPRECATED"
+                    },
+                    {
+                        "type": "model_usage",
+                        "model_ids": [
+                            "gemini_2_5_flash_image"
+                        ]
+                    }
+                ]
             }
         },
         {
@@ -115,8 +320,16 @@
             "file_path": "gemini_3_pro_image_generator.py",
             "metadata": {
                 "category": "image/googleai",
-                "description": "Generates images using Google's Gemini 3 Pro model (Nano Banana Pro). Supports both Vertex AI and AI Studio API.",
-                "display_name": "Nano Banana Pro Image Generator"
+                "description": "Generates images using Google's Gemini 3 Pro Image model (Nano Banana Pro). Supports both Vertex AI and AI Studio API.",
+                "display_name": "Nano Banana Pro Image Generator",
+                "declarations": [
+                    {
+                        "type": "model_usage",
+                        "model_ids": [
+                            "gemini_3_pro_image"
+                        ]
+                    }
+                ]
             }
         },
         {
@@ -124,8 +337,17 @@
             "file_path": "gemini_3_1_flash_image_generator.py",
             "metadata": {
                 "category": "image/googleai",
-                "description": "Generates images using Google's Gemini 3.1 Flash model (Nano Banana 2). Supports both Vertex AI and AI Studio API.",
-                "display_name": "Nano Banana 2 Image Generator"
+                "description": "Generates images using Google's Gemini 3.1 Flash Image models (Nano Banana 2 and Nano Banana 2 Lite). Supports both Vertex AI and AI Studio API.",
+                "display_name": "Nano Banana 2 Image Generator",
+                "declarations": [
+                    {
+                        "type": "model_usage",
+                        "model_ids": [
+                            "gemini_3_1_flash_image",
+                            "gemini_3_1_flash_lite_image"
+                        ]
+                    }
+                ]
             }
         },
         {
@@ -134,7 +356,17 @@
             "metadata": {
                 "category": "video/googleai",
                 "description": "Generates videos from text prompts using Google's Veo model.",
-                "display_name": "Veo Text-To-Video"
+                "display_name": "Veo Text-To-Video",
+                "declarations": [
+                    {
+                        "type": "model_usage",
+                        "model_ids": [
+                            "veo_3_1_generate",
+                            "veo_3_1_fast_generate",
+                            "veo_3_1_lite_generate"
+                        ]
+                    }
+                ]
             }
         },
         {
@@ -143,7 +375,16 @@
             "metadata": {
                 "category": "video/googleai",
                 "description": "Generates short 720p video from text, an optional starting frame, or a set of reference images using Google's Gemini Omni Flash model.",
-                "display_name": "Gemini Omni Flash"
+                "display_name": "Gemini Omni Flash",
+                "declarations": [
+                    {
+                        "type": "model_usage",
+                        "model_ids": [
+                            "gemini_omni_1_1_flash",
+                            "gemini_omni_flash"
+                        ]
+                    }
+                ]
             }
         },
         {
@@ -152,7 +393,17 @@
             "metadata": {
                 "category": "video/googleai",
                 "description": "Generates videos from an image input using Google's Veo model.",
-                "display_name": "Veo Image-To-Video"
+                "display_name": "Veo Image-To-Video",
+                "declarations": [
+                    {
+                        "type": "model_usage",
+                        "model_ids": [
+                            "veo_3_1_generate",
+                            "veo_3_1_fast_generate",
+                            "veo_3_1_lite_generate"
+                        ]
+                    }
+                ]
             }
         },
         {
@@ -161,7 +412,15 @@
             "metadata": {
                 "category": "video/googleai",
                 "description": "Generates videos from text prompts with reference images using Google's Veo model. Only includes models that support reference images.",
-                "display_name": "Veo Text-To-Video (With Reference Images)"
+                "display_name": "Veo Text-To-Video (With Reference Images)",
+                "declarations": [
+                    {
+                        "type": "model_usage",
+                        "model_ids": [
+                            "veo_3_1_generate"
+                        ]
+                    }
+                ]
             }
         },
         {
@@ -179,9 +438,19 @@
             "file_path": "lyria_audio_generator.py",
             "metadata": {
                 "category": "audio/googleai",
-                "description": "Generates instrumental audio using Google's Lyria model.",
+                "description": "Generates instrumental audio using Google's Lyria models.",
                 "display_name": "Lyria Audio Generator",
-                "icon": "Music"
+                "icon": "Music",
+                "declarations": [
+                    {
+                        "type": "model_usage",
+                        "model_ids": [
+                            "lyria_002",
+                            "lyria_3_pro",
+                            "lyria_3_clip"
+                        ]
+                    }
+                ]
             }
         },
         {
@@ -200,9 +469,27 @@
             "file_path": "describe_media.py",
             "metadata": {
                 "category": "analysis/googleai",
-                "description": "Analyzes images, videos, or audio and answers questions about the media content using Google's Gemini model.",
+                "description": "Analyzes images, videos, or audio and answers questions about the media content using Google's Gemini models.",
                 "display_name": "Describe Media",
-                "icon": "Eye"
+                "icon": "Eye",
+                "declarations": [
+                    {
+                        "type": "model_usage",
+                        "model_ids": [
+                            "gemini_3_8_flash",
+                            "gemini_3_7_flash",
+                            "gemini_3_6_flash",
+                            "gemini_3_5_flash",
+                            "gemini_3_5_flash_lite",
+                            "gemini_3_1_pro",
+                            "gemini_3_1_flash_lite",
+                            "gemini_3_flash",
+                            "gemini_2_5_pro",
+                            "gemini_2_5_flash",
+                            "gemini_2_5_flash_lite"
+                        ]
+                    }
+                ]
             }
         },
         {
@@ -212,7 +499,25 @@
                 "category": "analysis/googleai",
                 "description": "Identifies specific timecode markers in media content based on user prompts, outputting structured JSON with precise timing data.",
                 "display_name": "Identify Timecodes",
-                "icon": "Clock"
+                "icon": "Clock",
+                "declarations": [
+                    {
+                        "type": "model_usage",
+                        "model_ids": [
+                            "gemini_3_8_flash",
+                            "gemini_3_7_flash",
+                            "gemini_3_6_flash",
+                            "gemini_3_5_flash",
+                            "gemini_3_5_flash_lite",
+                            "gemini_3_1_pro",
+                            "gemini_3_1_flash_lite",
+                            "gemini_3_flash",
+                            "gemini_2_5_pro",
+                            "gemini_2_5_flash",
+                            "gemini_2_5_flash_lite"
+                        ]
+                    }
+                ]
             }
         }
     ],

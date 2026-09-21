@@ -3,7 +3,88 @@
 import json
 import os
 from collections.abc import Callable
+from pathlib import PurePath
 from typing import Any
+
+
+def with_extension(filename: str, extension: str) -> str:
+    """`filename` with its extension replaced, keeping the base name the artist chose.
+
+    Goes through a path type rather than splitting on the last dot, because `output_file` accepts
+    a path: `renders/v1.2/hero` would otherwise become `renders/v1.png`.
+
+    A trailing dot-segment is only treated as an extension when it starts with a letter and is
+    otherwise alphanumeric. Dots appear inside names artists actually type -- `track_v1.2`,
+    `render 2026.09.16`, `scene_1.5x` -- and replacing those would eat part of the name, so the
+    extension is appended instead. The letter-first test is what keeps `.mp3` a real extension
+    while `.2` is not; an alphabetic-only test would fail on every extension containing a digit.
+
+    A filename that is nothing but separators or dots has no name to re-extension, so it comes
+    back unchanged rather than raising out of a parameter-change hook.
+    """
+    path = PurePath(filename)
+    if not path.name or path.name in {".", ".."}:
+        return filename
+    suffix = path.suffix
+    if suffix[1:2].isalpha() and suffix[1:].isalnum():
+        return str(path.with_suffix(extension))
+    return f"{filename}{extension}"
+
+
+# Every Veo 3.1 variant produces 1080p only at the full 8-second length.
+# https://ai.google.dev/gemini-api/docs/veo
+HIGH_RESOLUTIONS = frozenset({"1080p"})
+FULL_DURATION_SECONDS = 8
+
+# Appended to the error raised when authentication fails, so every node names the same four
+# settings in the same order that GoogleAuthHelper actually tries them.
+CREDENTIALS_HELP = (
+    "Set up Google Cloud credentials in the library settings: "
+    "GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH (recommended, path to a workload identity config), "
+    "or GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to a service account JSON), "
+    "or GOOGLE_APPLICATION_CREDENTIALS_JSON, "
+    "or GOOGLE_CLOUD_PROJECT_ID on a machine with application default credentials."
+)
+
+
+def credentials_or_raise(
+    node_name: str,
+    log_func: Callable[[str], None] | None = None,
+    on_failure: Callable[[], None] | None = None,
+    extra_help: str = "",
+) -> tuple[Any, str]:
+    """Resolve Google Cloud credentials, raising an artist-readable error if they are missing.
+
+    Only the credentials lookup is caught here. A node that wrapped its whole run in the same
+    handler would report any later ValueError -- an empty model response, a rejected config -- as
+    a credentials problem, which sends the artist to the wrong setting.
+
+    Args:
+        node_name: Used to prefix the error, so the failing node is named.
+        log_func: Node's log sink, threaded into the auth helper and used for the error line.
+        on_failure: Called before raising, for the node to clear its own outputs. Nodes clear
+            different parameters, so that stays with the node rather than moving in here.
+        extra_help: Appended to the error, for a node with an additional prerequisite to name.
+
+    Returns:
+        The credentials object (None under application default credentials) and the project id.
+
+    Raises:
+        RuntimeError: If no usable credentials are configured.
+    """
+    # Imported here rather than at module scope: GriptapeNodes pulls in the engine, and this
+    # module is also imported by tooling that has no engine available.
+    from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
+    try:
+        return GoogleAuthHelper.get_credentials_and_project(GriptapeNodes.SecretsManager(), log_func=log_func)
+    except ValueError as e:
+        if on_failure is not None:
+            on_failure()
+        if log_func is not None:
+            log_func(f"❌ Configuration error: {e}")
+        msg = f"{node_name}: could not authenticate to Google Cloud. {e} {CREDENTIALS_HELP}{extra_help}"
+        raise RuntimeError(msg) from e
 
 
 def detect_image_mime_from_bytes(data: bytes) -> str | None:

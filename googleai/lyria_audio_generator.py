@@ -1,28 +1,58 @@
-import json
+import base64
 import logging
 from typing import Any
 
 import requests
+from googleai_utils import GoogleAuthHelper, credentials_or_raise, with_extension
 from griptape.artifacts import AudioUrlArtifact
 from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
+from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 # Attempt to import Google libraries
 try:
-    from google.cloud import aiplatform
+    from google import genai
 
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
 
-from googleai_utils import GoogleAuthHelper
-
 logger = logging.getLogger("griptape_nodes_library_googleai")
+
+# Lyria 2 and Lyria 3 are two different APIs, verified live on 2026-09-16, so the model choice
+# selects a code path rather than just a string in a URL:
+#
+#   lyria-002       :predict on a regional endpoint -> WAV, base64 under `bytesBase64Encoded`
+#   lyria-3-*       interactions.create at `global`  -> MP3, base64 under `output_audio.data`
+#
+# The Lyria 3 models 404 on :predict in every region, so the old predict-only path could never
+# have reached them however they were spelled.
+#
+# lyria-3.5 and lyria-realtime-exp are deliberately absent: Vertex publishes neither, so reaching
+# them would mean giving this node the AI Studio surface, which there is no way to test against.
+PREDICT_MODELS = ["lyria-002"]
+INTERACTION_MODELS = ["lyria-3-pro-preview", "lyria-3-clip-preview"]
+MODELS = [*PREDICT_MODELS, *INTERACTION_MODELS]
+DEFAULT_MODEL = PREDICT_MODELS[0]
+
+# The predict API answers with base64 audio under this key. Google's own docs call this field
+# `audioContent`, which it is not.
+AUDIO_CONTENT_KEY = "bytesBase64Encoded"
+
+# interactions is only served from the `global` location, like the Gemini Omni models.
+INTERACTION_LOCATION = "global"
+
+# Output extension per API, so the saved file matches what the model actually returns.
+PREDICT_EXTENSION = ".wav"
+INTERACTION_EXTENSION = ".mp3"
+DEFAULT_FILENAME = f"lyria_audio{PREDICT_EXTENSION}"
+
+# Generation is a single synchronous call; without a ceiling a hung connection hangs the node.
+REQUEST_TIMEOUT_SECONDS = 300
 
 
 class LyriaAudioGenerator(ControlNode):
@@ -55,6 +85,26 @@ class LyriaAudioGenerator(ControlNode):
             )
         )
 
+        # No Options trait here: ModelAccessComponent installs its own, plus the license
+        # decoration and the legacy-value migration.
+        model_parameter = ParameterString(
+            name="model",
+            tooltip=(
+                "The Lyria model to use. lyria-002 is generally available and returns a 30-second "
+                "48kHz WAV. The Lyria 3 models are preview, return MP3, ignore the seed, and need "
+                "your Google Cloud project to be allowlisted for them, otherwise they answer 404."
+            ),
+            default_value=DEFAULT_MODEL,
+            allow_output=False,
+        )
+        self.add_parameter(model_parameter)
+        self._model_access = ModelAccessComponent(
+            node=self,
+            parameter=model_parameter,
+            model_choices=MODELS,
+            default_model=DEFAULT_MODEL,
+        )
+
         # Seed parameter component
         self._seed_parameter = SeedParameter(self)
         self._seed_parameter.add_input_parameters()
@@ -63,7 +113,10 @@ class LyriaAudioGenerator(ControlNode):
             Parameter(
                 name="location",
                 type="str",
-                tooltip="Google Cloud location for the generation job.",
+                tooltip=(
+                    "Google Cloud location for the generation job. Only applies to lyria-002; the "
+                    "Lyria 3 models are served from 'global' only."
+                ),
                 default_value="us-central1",
                 traits=[
                     Options(
@@ -78,7 +131,7 @@ class LyriaAudioGenerator(ControlNode):
         self.add_parameter(
             Parameter(
                 name="output",
-                tooltip="Generated audio artifact (30-second WAV clip at 48kHz)",
+                tooltip="Generated audio artifact. WAV from lyria-002, MP3 from the Lyria 3 models.",
                 output_type="AudioUrlArtifact",
                 allowed_modes={ParameterMode.OUTPUT},
             )
@@ -97,253 +150,277 @@ class LyriaAudioGenerator(ControlNode):
         logs_group.ui_options = {"hide": True}
         self.add_node_element(logs_group)
 
-        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename="lyria_audio.wav")
+        self._output_file = ProjectFileParameter(node=self, name="output_file", default_filename=DEFAULT_FILENAME)
         self._output_file.add_parameter()
+
+        self._sync_to_model(self.get_parameter_value("model") or DEFAULT_MODEL)
 
     def after_value_set(self, parameter: Parameter, value: Any) -> None:
         """Handle parameter value changes."""
         self._seed_parameter.after_value_set(parameter, value)
+        self._model_access.on_value_set(parameter, value)
+        if parameter.name == "model":
+            self._sync_to_model(value)
         return super().after_value_set(parameter, value)
+
+    def _sync_to_model(self, model: str) -> None:
+        """Point the node's surface at whichever API the chosen model uses.
+
+        Lyria 3 returns MP3 from a fixed location and ignores the seed, so leaving a `.wav`
+        filename or a visible region would each promise something the run cannot deliver.
+        """
+        uses_interactions = model in INTERACTION_MODELS
+        extension = INTERACTION_EXTENSION if uses_interactions else PREDICT_EXTENSION
+        self._retarget_output_extension(extension)
+
+        for name in ("location", *self._seed_parameter_names()):
+            if uses_interactions:
+                self.hide_parameter_by_name(name)
+            else:
+                self.show_parameter_by_name(name)
+
+    def _seed_parameter_names(self) -> tuple[str, ...]:
+        """The seed component's parameter names that exist on this node."""
+        return tuple(name for name in ("seed", "randomize_seed") if self.get_parameter_by_name(name) is not None)
+
+    def _retarget_output_extension(self, extension: str) -> None:
+        """Swap the output filename's extension, keeping whatever base name the artist chose."""
+        current = self.get_parameter_value("output_file")
+        if not isinstance(current, str) or not current:
+            current = DEFAULT_FILENAME
+        updated = with_extension(current, extension)
+        if updated != current:
+            self.set_parameter_value("output_file", updated)
 
     def _log(self, message: str):
         """Append a message to the logs output parameter."""
         logger.info(message)
         self.append_value_to_parameter("logs", message + "\n")
 
-    def _generate_audio(self, final_project_id, credentials, prompt, negative_prompt, seed, location) -> None:
+    def _clear_audio_output(self) -> None:
+        """Clear the audio output but keep the logs, which explain the failure."""
+        self.parameter_output_values["output"] = None
+
+    def _generate_audio(  # noqa: PLR0913
+        self,
+        final_project_id: str,
+        credentials: Any,
+        model: str,
+        prompt: str,
+        negative_prompt: str,
+        seed: int,
+        location: str,
+    ) -> None:
         """Generate audio and process result - called via yield."""
         try:
-            # Get access token
             access_token = GoogleAuthHelper.get_access_token(credentials)
 
-            # Build the API request
-            url = f"https://{location}-aiplatform.googleapis.com/v1/projects/{final_project_id}/locations/{location}/publishers/google/models/lyria-002:predict"
-
+            url = (
+                f"https://{location}-aiplatform.googleapis.com/v1/projects/{final_project_id}"
+                f"/locations/{location}/publishers/google/models/{model}:predict"
+            )
             headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
 
-            # Build instance data
-            instance = {"prompt": prompt}
-
+            instance: dict[str, Any] = {"prompt": prompt, "seed": seed}
             if negative_prompt:
                 instance["negative_prompt"] = negative_prompt
 
-            # Add seed - SeedParameter handles randomization logic
-            instance["seed"] = seed
+            # sample_count is fixed at 1: the API returns a single clip per request.
+            payload = {"instances": [instance], "parameters": {"sample_count": 1}}
 
-            # Build parameters - hardcoded to 1 due to API limitation
-            parameters = {"sample_count": 1}
-
-            # Build request payload
-            payload = {"instances": [instance], "parameters": parameters}
-
-            # Debug: Log the request payload
-            self._log("🔍 Request payload:")
-            self._log(json.dumps(payload, indent=2))
-
-            self._log(f"🎵 Generating audio for prompt: '{prompt}'")
+            self._log(f"🎵 Generating audio with {model} for prompt: '{prompt}'")
             if negative_prompt:
                 self._log(f"🚫 Negative prompt: '{negative_prompt}'")
             self._log(f"🎲 Using seed: {seed}")
 
-            # Log helpful tip for avoiding recitation blocks
-            self._log("💡 TIP: If you get blocked by recitation checks, try more unique/creative prompts!")
-
-            # Make the API request
-            response = requests.post(url, headers=headers, json=payload)
+            response = requests.post(url, headers=headers, json=payload, timeout=REQUEST_TIMEOUT_SECONDS)
             response.raise_for_status()
-
             result = response.json()
 
-            self._log("✅ Audio generation completed!")
-
-            # Debug: Log the complete response structure
-            self._log("🔍 Complete API response structure:")
-            self._log(f"   Response keys: {list(result.keys())}")
-
-            # Show all non-prediction fields
-            for key, value in result.items():
-                if key != "predictions":
-                    self._log(f"   {key}: {value}")
-
-            # Show predictions structure
-            if "predictions" in result:
-                predictions = result["predictions"]
-                self._log(f"   predictions: array with {len(predictions)} item(s)")
-                for i, pred in enumerate(predictions):
-                    if isinstance(pred, dict):
-                        self._log(f"     Prediction {i + 1} keys: {list(pred.keys())}")
-                        for k, v in pred.items():
-                            if isinstance(v, str) and len(v) > 100:
-                                self._log(f"       {k}: <string with {len(v)} characters>")
-                            else:
-                                self._log(f"       {k}: {v}")
-                    else:
-                        self._log(f"     Prediction {i + 1}: {type(pred).__name__}")
-
-            # Process the predictions
-            if "predictions" not in result or not result["predictions"]:
-                self._log("❌ No predictions found in response.")
-                return
-
-            predictions = result["predictions"]
-
-            # Process the first prediction (API only generates 1 audio clip)
-            prediction = predictions[0]
-            self._log("🎯 Processing generated audio clip...")
-
-            # Debug: Log prediction structure
-            self._log("🔍 Prediction structure:")
-            if isinstance(prediction, dict):
-                self._log(f"   Keys: {list(prediction.keys())}")
-                for key, value in prediction.items():
-                    if isinstance(value, str) and len(value) > 100:
-                        self._log(f"   {key}: <string with {len(value)} characters>")
-                    else:
-                        self._log(f"   {key}: {value}")
-            else:
-                self._log(f"   Prediction is type: {type(prediction)}")
-                if isinstance(prediction, str):
-                    self._log(f"   String length: {len(prediction)}")
-                    if len(prediction) > 1000:
-                        self._log(f"   First 100 chars: {prediction[:100]}...")
-                    else:
-                        self._log(f"   Content: {prediction}")
-                else:
-                    self._log(f"   Value: {prediction}")
-
-            self._log("Processing audio...")
-
-            # Try different possible field names for audio content
-            audio_content = None
-            found_in_field = None
-
-            if isinstance(prediction, dict):
-                # Try various field names
-                field_names = ["audioContent", "audio_content", "content", "data", "audio", "prediction"]
-                for field_name in field_names:
-                    if field_name in prediction:
-                        audio_content = prediction[field_name]
-                        found_in_field = field_name
-                        break
-
-                # If no named field, try to find any string field that looks like base64
-                if not audio_content:
-                    for key, value in prediction.items():
-                        if isinstance(value, str) and len(value) > 1000:
-                            # Likely base64 audio data
-                            audio_content = value
-                            found_in_field = key
-                            break
-            elif isinstance(prediction, str):
-                # Sometimes the prediction itself is the base64 string
-                audio_content = prediction
-                found_in_field = "direct_string"
-
-            if not audio_content:
-                self._log("❌ No audio content found in any expected field")
-                return
-
-            self._log(f"✅ Found audio content in field: {found_in_field}")
-
-            # Decode base64 audio data
-            import base64
-
-            try:
-                audio_data = base64.b64decode(audio_content)
-                self._log(f"✅ Successfully decoded {len(audio_data)} bytes of audio data")
-            except Exception as e:
-                self._log(f"❌ Failed to decode base64 audio data: {e}")
-                return
-
-            self._log("Saving audio to project storage...")
+            audio_data = base64.b64decode(self._read_audio_content(result))
+            self._log(f"✅ Decoded {len(audio_data)} bytes of audio data")
 
             saved = self._output_file.build_file().write_bytes(audio_data)
-
-            url_artifact = AudioUrlArtifact(value=saved.location, name=saved.location)
-            self.parameter_output_values["output"] = url_artifact
+            self.parameter_output_values["output"] = AudioUrlArtifact(value=saved.location, name=saved.location)
             self._log(f"✅ Audio saved. URL: {saved.location}")
-            self._log("\n🎉 SUCCESS! Audio processed.")
-            self._log("🎵 Generated 30-second instrumental WAV clip at 48kHz")
 
         except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 400:
-                try:
-                    error_detail = e.response.json()
-                    error_message = error_detail.get("error", {}).get("message", "Bad Request")
-                    self._log(f"❌ API Error: {error_message}")
-
-                    # Check for recitation/copyright blocking issues
-                    if "recitation" in error_message.lower() or "blocked" in error_message.lower():
-                        self._log("\n🚫 RECITATION/COPYRIGHT BLOCK DETECTED:")
-                        self._log("   This prompt was blocked due to potential copyright similarities.")
-                        self._log("\n💡 SOLUTIONS TO TRY:")
-                        self._log("   1. Make your prompt more unique and specific")
-                        self._log(
-                            "   2. Use creative genre combinations (e.g., 'psychedelic cumbia', 'hazy uk garage')"
-                        )
-                        self._log("   3. Focus on textures/atmosphere rather than genres")
-                        self._log("   4. Add environmental sounds or unique elements")
-                        self._log("\n✅ EXAMPLE PROMPTS THAT WORK:")
-                        self._log("   • 'vintage synthesizer melodies with rain sounds and distant thunder'")
-                        self._log("   • 'acoustic guitar fingerpicking with subtle string arrangements'")
-                        self._log("   • 'ambient electronic soundscape with field recording elements'")
-                        self._log("   • 'minimalist piano with reverb over soft nature sounds'")
-                        self._log("\n🔄 You can also try running the same prompt again - sometimes it works on retry!")
-
-                except Exception:
-                    self._log("❌ API Error: Bad Request (400)")
-            else:
-                self._log(f"❌ HTTP Error: {e}")
+            self._clear_audio_output()
+            api_message = self._api_error_message(e)
+            self._log(f"❌ API error: {api_message}")
+            if e.response is not None and e.response.status_code == 404:
+                self._log(
+                    f"💡 '{model}' resolves on Vertex AI but your project may not be allowlisted for "
+                    "it. The Lyria 3 models are preview; lyria-002 is generally available."
+                )
+            if "recitation" in api_message.lower() or "blocked" in api_message.lower():
+                self._log(
+                    "🚫 The prompt was blocked for possible copyright similarity. Describe textures and "
+                    "atmosphere rather than naming a genre or artist, and try again."
+                )
+            msg = f"{self.name}: Lyria rejected the request. {api_message}"
+            raise RuntimeError(msg) from e
         except Exception as e:
-            self._log(f"❌ An unexpected error occurred during audio generation: {e}")
-            import traceback
+            self._clear_audio_output()
+            self._log(f"❌ Audio generation failed: {e}")
+            msg = f"{self.name}: Lyria audio generation failed. {e}"
+            raise RuntimeError(msg) from e
 
-            self._log(traceback.format_exc())
-            raise
+    @staticmethod
+    def _read_audio_content(result: dict[str, Any]) -> str:
+        """Pull the base64 audio out of a predict response.
+
+        Raises with what the response actually contained, so an API shape change reads as the
+        real cause instead of a generic decode failure further down.
+        """
+        predictions = result.get("predictions")
+        if not predictions:
+            msg = f"Lyria returned no predictions. Response keys: {sorted(result)}."
+            raise ValueError(msg)
+
+        prediction = predictions[0]
+        if not isinstance(prediction, dict) or AUDIO_CONTENT_KEY not in prediction:
+            found = sorted(prediction) if isinstance(prediction, dict) else type(prediction).__name__
+            msg = f"Lyria returned no '{AUDIO_CONTENT_KEY}' in its prediction. Found: {found}."
+            raise ValueError(msg)
+
+        return prediction[AUDIO_CONTENT_KEY]
+
+    @staticmethod
+    def _api_error_message(error: requests.exceptions.HTTPError) -> str:
+        """The message Google put in the error body, or the raw error if it carried none."""
+        try:
+            return error.response.json().get("error", {}).get("message", str(error))
+        except (ValueError, AttributeError):
+            return str(error)
 
     def process(self) -> AsyncResult[None]:
+        self._model_access.raise_if_selection_denied()
         yield lambda: self._process()
 
-    def _process(self):
-        if not GOOGLE_INSTALLED:
-            self._log(
-                "ERROR: Required Google libraries are not installed. Please add 'google-auth', 'google-cloud-aiplatform' to your library's dependencies."
-            )
-            return
+    def validate_before_node_run(self) -> list[Exception] | None:
+        """Reject a run that cannot possibly produce audio."""
+        exceptions: list[Exception] = []
 
+        if not self.get_parameter_value("prompt"):
+            exceptions.append(ValueError(f"{self.name}: a prompt is required."))
+        model = self.get_parameter_value("model") or DEFAULT_MODEL
+        if model in INTERACTION_MODELS and not GOOGLE_INSTALLED:
+            exceptions.append(
+                ImportError(
+                    f"{self.name}: '{model}' needs 'google-genai', which is not installed. Add it "
+                    "to this library's dependencies, or use lyria-002."
+                )
+            )
+
+        return exceptions or None
+
+    def _process(self):
         # Get input values
+        model = self.get_parameter_value("model") or DEFAULT_MODEL
         prompt = self.get_parameter_value("prompt")
         negative_prompt = self.get_parameter_value("negative_prompt")
-        self._seed_parameter.preprocess()
-        seed = self._seed_parameter.get_seed()
         location = self.get_parameter_value("location")
+        uses_interactions = model in INTERACTION_MODELS
 
-        # Validate inputs
-        if not prompt:
-            self._log("ERROR: Prompt is a required input.")
-            return
+        # The output extension is re-derived here rather than trusted from the last model change:
+        # `ProjectFileParameter` resets the filename to its own default when an upstream
+        # destination is disconnected, which would otherwise leave `.wav` on a Lyria 3 run.
+        self._retarget_output_extension(INTERACTION_EXTENSION if uses_interactions else PREDICT_EXTENSION)
+
+        # Only the predict path takes a seed. `preprocess` randomizes and republishes it, so
+        # running it for Lyria 3 would churn a hidden value the model ignores.
+        seed = 0
+        if not uses_interactions:
+            self._seed_parameter.preprocess()
+            seed = self._seed_parameter.get_seed()
+
+        credentials, final_project_id = credentials_or_raise(
+            self.name,
+            log_func=self._log,
+            on_failure=self._clear_audio_output,
+        )
+        self._log(f"Project ID: {final_project_id}")
+
+        if uses_interactions:
+            self._generate_audio_via_interactions(final_project_id, credentials, model, prompt, negative_prompt)
+        else:
+            self._generate_audio(final_project_id, credentials, model, prompt, negative_prompt, seed, location)
+
+    def _generate_audio_via_interactions(  # noqa: PLR0913
+        self,
+        project_id: str,
+        credentials: Any,
+        model: str,
+        prompt: str,
+        negative_prompt: str,
+    ) -> None:
+        """Generate with a Lyria 3 model through the interactions API.
+
+        Runs in the foreground: these models reject `background=True`, so there is no operation to
+        poll. `response_format` is left off deliberately, which yields MP3 -- asking for audio
+        explicitly demands a `bit_rate` and then rejects every value offered for it.
+        """
+        client = genai.Client(vertexai=True, project=project_id, location=INTERACTION_LOCATION, credentials=credentials)
+
+        generation_config: dict[str, Any] = {}
+        if negative_prompt:
+            generation_config["audio_config"] = {"negative_prompt": negative_prompt}
+
+        self._log(f"🎵 Generating audio with {model} for prompt: '{prompt}'")
+        if negative_prompt:
+            self._log(f"🚫 Negative prompt: '{negative_prompt}'")
+        self._log("ℹ️ Lyria 3 ignores the seed and returns MP3.")
 
         try:
-            # Use GoogleAuthHelper for authentication
-            credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
-                GriptapeNodes.SecretsManager(), log_func=self._log
-            )
-
-            self._log(f"Project ID: {final_project_id}")
-            self._log("Initializing Vertex AI...")
-            aiplatform.init(project=final_project_id, location=location, credentials=credentials)
-
-            # Generate the audio
-            self._generate_audio(final_project_id, credentials, prompt, negative_prompt, seed, location)
-
-        except ValueError as e:
-            self._log(f"❌ CONFIGURATION ERROR: {e}")
-            self._log("💡 Please set up Google Cloud credentials in the library settings:")
-            self._log("   - GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH (recommended, path to workload identity config)")
-            self._log("   - OR GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
-            self._log("   - OR GOOGLE_CLOUD_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON")
+            kwargs: dict[str, Any] = {"model": model, "input": prompt}
+            if generation_config:
+                kwargs["generation_config"] = generation_config
+            interaction = client.interactions.create(**kwargs)
         except Exception as e:
-            self._log(f"❌ An unexpected error occurred: {e}")
-            import traceback
+            self._clear_audio_output()
+            self._log(f"❌ Audio generation failed: {e}")
+            if "not found" in str(e).lower() or "404" in str(e):
+                self._log(
+                    f"💡 '{model}' is a preview model. Your Google Cloud project has to be "
+                    "allowlisted for it; lyria-002 is generally available."
+                )
+            msg = f"{self.name}: Lyria audio generation failed. {e}"
+            raise RuntimeError(msg) from e
 
-            self._log(traceback.format_exc())
+        try:
+            audio_data = base64.b64decode(self._read_interaction_audio(interaction))
+            self._log(f"✅ Decoded {len(audio_data)} bytes of audio data")
+
+            saved = self._output_file.build_file().write_bytes(audio_data)
+            self.parameter_output_values["output"] = AudioUrlArtifact(value=saved.location, name=saved.location)
+            self._log(f"✅ Audio saved. URL: {saved.location}")
+        except Exception as e:
+            self._clear_audio_output()
+            self._log(f"❌ Audio generation failed: {e}")
+            msg = f"{self.name}: Lyria audio generation failed. {e}"
+            raise RuntimeError(msg) from e
+
+    @staticmethod
+    def _read_interaction_audio(interaction: Any) -> str:
+        """Pull the base64 audio out of a completed interaction.
+
+        Prefers the `output_audio` accessor and falls back to scanning `steps[].content[]`, which
+        is where the same payload also appears.
+        """
+        status = getattr(interaction, "status", None)
+        if status != "completed":
+            msg = f"Lyria interaction ended with status '{status}' instead of completing."
+            raise ValueError(msg)
+
+        output_audio = getattr(interaction, "output_audio", None)
+        if output_audio is not None and getattr(output_audio, "data", None):
+            return output_audio.data
+
+        for step in getattr(interaction, "steps", None) or []:
+            for content in getattr(step, "content", None) or []:
+                if getattr(content, "type", None) == "audio" and getattr(content, "data", None):
+                    return content.data
+
+        msg = "Lyria interaction completed but carried no audio content."
+        raise ValueError(msg)

@@ -12,27 +12,32 @@ from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_int import ParameterInt
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.button import Button
 from griptape_nodes.traits.options import Options
 
 # Attempt to import Google libraries
 try:
     from google import genai
-    from google.cloud import aiplatform, storage
+    from google.cloud import storage
     from google.genai.types import GenerateVideosConfig, Image
 
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
 
-from googleai_utils import GoogleAuthHelper, detect_image_mime_from_bytes
+from googleai_utils import (
+    FULL_DURATION_SECONDS,
+    HIGH_RESOLUTIONS,
+    credentials_or_raise,
+    detect_image_mime_from_bytes,
+)
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
 
 MODELS = [
     "veo-3.1-generate-001",
     "veo-3.1-fast-generate-001",
+    "veo-3.1-lite-generate-001",
 ]
 
 # Mapping of deprecated model names to their GA replacements.
@@ -60,6 +65,13 @@ MODEL_CAPABILITIES = {
         "version": "veo3",
     },
     "veo-3.1-fast-generate-001": {
+        "supports_last_frame": True,
+        "supports_reference_images": True,
+        "duration_choices": [4, 6, 8],
+        "duration_default": 8,
+        "version": "veo3",
+    },
+    "veo-3.1-lite-generate-001": {
         "supports_last_frame": True,
         "supports_reference_images": True,
         "duration_choices": [4, 6, 8],
@@ -364,12 +376,20 @@ class VeoImageToVideoGenerator(ControlNode):
         self.append_value_to_parameter("logs", message + "\n")
 
     def _reset_outputs(self) -> None:
-        """Clear output parameters so stale values don't persist across re-adds/reruns."""
-        try:
-            self.parameter_output_values["logs"] = ""
-        except Exception:
-            # Be defensive if the base class changes how outputs are stored
-            pass
+        """Clear every output so stale values don't persist across re-adds/reruns."""
+        self._clear_video_outputs()
+        self.parameter_output_values["logs"] = ""
+
+    def _clear_video_outputs(self) -> None:
+        """Clear the video outputs but keep the logs.
+
+        The failure paths use this rather than `_reset_outputs`: the log is the only record of
+        what went wrong, so emptying it on the way to raising would discard the explanation.
+        """
+        self.parameter_output_values["video_artifacts"] = []
+        for row in (1, 2):
+            for col in (1, 2):
+                self.parameter_output_values[f"video_{row}_{col}"] = None
 
     def _get_image_base64(self, image_artifact) -> tuple[str, str]:
         """Convert image artifact to base64 string and return base64 data and mime type."""
@@ -458,33 +478,33 @@ class VeoImageToVideoGenerator(ControlNode):
                     self._log(
                         "💡 Tip: You can also try changing the location parameter to a different region (e.g., 'us-east1')."
                     )
-                return
+                msg = f"Veo reported an error: {error_details}"
+                raise RuntimeError(msg)
 
             if not hasattr(operation, "response") or not operation.response:
-                self._log("❌ Video generation completed but no response found.")
-                return
+                msg = "Veo reported completion but returned no response."
+                raise RuntimeError(msg)
 
             video_artifacts = []
             # Fix: videos are in operation.response, not operation.result
             generated_videos = operation.response.generated_videos if operation.response else None
 
-            # Check for content filtering
-            if operation.response and hasattr(operation.response, "rai_media_filtered_count"):
-                filtered_count = operation.response.rai_media_filtered_count
-                if filtered_count > 0:
-                    self._log(f"🚫 Content Filter: {filtered_count} video(s) were filtered by Google's content policy.")
-                    if (
-                        hasattr(operation.response, "rai_media_filtered_reasons")
-                        and operation.response.rai_media_filtered_reasons
-                    ):
-                        for reason in operation.response.rai_media_filtered_reasons:
-                            self._log(f"   Reason: {reason}")
-                    self._log("💡 Tip: Try rephrasing your prompt to avoid violent, sexual, or harmful content.")
-                    return
+            # `rai_media_filtered_count` is present on every response and defaults to None, so it
+            # is coerced before comparison. A partial filter keeps the surviving videos; only
+            # losing all of them is a failure.
+            filtered_count = getattr(operation.response, "rai_media_filtered_count", None) or 0
+            if filtered_count:
+                self._log(f"🚫 Content Filter: {filtered_count} video(s) were filtered by Google's content policy.")
+                for reason in getattr(operation.response, "rai_media_filtered_reasons", None) or []:
+                    self._log(f"   Reason: {reason}")
+                self._log("💡 Tip: Try rephrasing your prompt to avoid violent, sexual, or harmful content.")
+                if not generated_videos:
+                    msg = f"Google's content policy filtered all {filtered_count} generated video(s)."
+                    raise RuntimeError(msg)
 
             if not generated_videos:
-                self._log("❌ No videos found in the response.")
-                return
+                msg = "Veo returned a response with no videos in it."
+                raise RuntimeError(msg)
 
             self._log(f"🎯 Generated {len(generated_videos)} video(s)")
 
@@ -553,24 +573,41 @@ class VeoImageToVideoGenerator(ControlNode):
 
                 self._log("\n🎉 SUCCESS! All videos processed.")
             else:
-                self._log("\n❌ No videos were successfully saved.")
+                msg = "Veo returned videos but none of them could be saved."
+                raise RuntimeError(msg)
         except Exception as e:
             self._log(f"❌ An unexpected error occurred during polling: {e}")
-            import traceback
-
-            self._log(traceback.format_exc())
             raise
+
+    def validate_before_node_run(self) -> list[Exception] | None:
+        """Reject a run the model would refuse, before spending a request on it."""
+        exceptions: list[Exception] = []
+
+        if not GOOGLE_INSTALLED:
+            exceptions.append(
+                ImportError(
+                    f"{self.name}: the Google libraries are not installed. Add 'google-auth', "
+                    "'google-cloud-storage' and 'google-genai' to this library's dependencies."
+                )
+            )
+        if not self.get_parameter_value("image"):
+            exceptions.append(ValueError(f"{self.name}: an input image is required."))
+
+        resolution = self.get_parameter_value("resolution")
+        duration = self.get_parameter_value("duration")
+        if resolution in HIGH_RESOLUTIONS and duration != FULL_DURATION_SECONDS:
+            exceptions.append(
+                ValueError(
+                    f"{self.name}: {resolution} is only produced at {FULL_DURATION_SECONDS} seconds, "
+                    f"but duration is set to {duration}. Raise the duration or drop to 720p."
+                )
+            )
+
+        return exceptions or None
 
     def process(self) -> AsyncResult:
         # Clear outputs at the start of each run
         self._reset_outputs()
-
-        if not GOOGLE_INSTALLED:
-            self._log(
-                "ERROR: Required Google libraries are not installed. Please add 'google-auth', 'google-cloud-aiplatform', 'google-cloud-storage', 'google-genai' to your library's dependencies."
-            )
-            return
-            yield  # unreachable but makes the function a generator
 
         # Get input values
         image_artifact = self.get_parameter_value("image")
@@ -586,11 +623,6 @@ class VeoImageToVideoGenerator(ControlNode):
         self._seed_parameter.preprocess()
         seed = self._seed_parameter.get_seed()
         location = self.get_parameter_value("location")
-
-        # Debug: Log aspect ratio value immediately after reading
-        self._log(
-            f"🔍 DEBUG: Read aspect_ratio parameter value: '{aspect_ratio}' (type: {type(aspect_ratio).__name__})"
-        )
 
         # Handle dict input (can happen after serialization/deserialization)
         # Handle image_artifact dict
@@ -627,15 +659,12 @@ class VeoImageToVideoGenerator(ControlNode):
                 self._log(f"ERROR: Failed to convert last_frame dict to image artifact: {e}")
                 last_frame_artifact = None
 
-        try:
-            # Use GoogleAuthHelper for authentication
-            credentials, final_project_id = GoogleAuthHelper.get_credentials_and_project(
-                GriptapeNodes.SecretsManager(), log_func=self._log
-            )
+        credentials, final_project_id = credentials_or_raise(
+            self.name, log_func=self._log, on_failure=self._clear_video_outputs
+        )
 
+        try:
             self._log(f"Project ID: {final_project_id}")
-            self._log("Initializing Vertex AI...")
-            aiplatform.init(project=final_project_id, location=location, credentials=credentials)
 
             self._log("Initializing Generative AI Client...")
             client = genai.Client(vertexai=True, project=final_project_id, location=location, credentials=credentials)
@@ -708,14 +737,8 @@ class VeoImageToVideoGenerator(ControlNode):
             # Use yield pattern for non-blocking execution
             yield lambda: self._poll_and_process_video_result(client, operation, final_project_id, credentials)
 
-        except ValueError as e:
-            self._log(f"❌ CONFIGURATION ERROR: {e}")
-            self._log("💡 Please set up Google Cloud credentials in the library settings:")
-            self._log("   - GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH (recommended, path to workload identity config)")
-            self._log("   - OR GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to service account JSON)")
-            self._log("   - OR GOOGLE_CLOUD_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON")
         except Exception as e:
-            self._log(f"❌ An unexpected error occurred: {e}")
-            import traceback
-
-            self._log(traceback.format_exc())
+            self._clear_video_outputs()
+            self._log(f"❌ Video generation failed: {e}")
+            msg = f"{self.name}: Veo video generation failed. {e}"
+            raise RuntimeError(msg) from e
