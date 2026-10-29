@@ -33,6 +33,7 @@ make check/format   # ruff format --check
 make check/lint     # ruff check
 make check/types    # pyright
 make check/changelog  # CHANGELOG.md and changelog.d entries
+make test           # pytest
 ```
 
 ### Fixing Issues
