@@ -10,4 +10,4 @@ the `library_version` in `googleai/griptape_nodes_library.json`.
 
 <!-- Entries go in changelog.d/, one file each. See changelog.d/README.md. -->
 
-[Unreleased]: https://github.com/griptape-ai/griptape-nodes-library-googleai/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/griptape-ai/griptape-nodes-library-googleai/compare/19e707ba6379f46ea6f1d57518e96c8e4e68ff00...HEAD
