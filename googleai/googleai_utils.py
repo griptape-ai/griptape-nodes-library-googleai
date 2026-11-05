@@ -8,8 +8,8 @@ from typing import Any
 
 from googleai_errors import (
     API_KEY_NAME,
+    API_KEY_URL,
     has_vertex_credentials,
-    missing_api_key_error,
     missing_credentials_error,
     refused_credentials_error,
 )
@@ -64,7 +64,7 @@ def api_key_or_raise(
         on_failure()
     if log_func is not None:
         log_func("❌ GOOGLE_API_KEY is not set.")
-    raise missing_api_key_error()
+    raise NodeError.from_missing_secret(API_KEY_NAME, key_url=API_KEY_URL)
 
 
 def credentials_or_raise(

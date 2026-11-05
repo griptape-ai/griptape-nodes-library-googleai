@@ -4,7 +4,6 @@ from typing import Any
 
 import requests
 from googleai_errors import (
-    error_from_http_error,
     missing_credential_errors,
     node_error_from,
     parameter_error,
@@ -253,7 +252,7 @@ class LyriaAudioGenerator(ControlNode):
 
         except requests.exceptions.HTTPError as e:
             self._clear_audio_output()
-            error = error_from_http_error(e)
+            error = node_error_from(e) or NodeError(str(e))
             api_message = str(error)
             self._log(f"❌ API error: {api_message}")
             hints = []
