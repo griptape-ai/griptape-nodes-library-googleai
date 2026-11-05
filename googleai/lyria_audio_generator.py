@@ -3,9 +3,16 @@ import logging
 from typing import Any
 
 import requests
+from googleai_errors import (
+    error_from_http_error,
+    missing_credential_errors,
+    node_error_from,
+    parameter_error,
+    raise_node_error,
+)
 from googleai_utils import GoogleAuthHelper, credentials_or_raise, with_extension
 from griptape.artifacts import AudioUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
@@ -246,25 +253,32 @@ class LyriaAudioGenerator(ControlNode):
 
         except requests.exceptions.HTTPError as e:
             self._clear_audio_output()
-            api_message = self._api_error_message(e)
+            error = error_from_http_error(e)
+            api_message = str(error)
             self._log(f"❌ API error: {api_message}")
+            hints = []
             if e.response is not None and e.response.status_code == 404:
-                self._log(
-                    f"💡 '{model}' resolves on Vertex AI but your project may not be allowlisted for "
+                hints.append(
+                    f"'{model}' resolves on Vertex AI but your project may not be allowlisted for "
                     "it. The Lyria 3 models are preview; lyria-002 is generally available."
                 )
             if "recitation" in api_message.lower() or "blocked" in api_message.lower():
-                self._log(
-                    "🚫 The prompt was blocked for possible copyright similarity. Describe textures and "
+                hints.append(
+                    "The prompt was blocked for possible copyright similarity. Describe textures and "
                     "atmosphere rather than naming a genre or artist, and try again."
                 )
-            msg = f"{self.name}: Lyria rejected the request. {api_message}"
-            raise RuntimeError(msg) from e
+            if hints:
+                error = NodeError(
+                    f"{api_message.rstrip('.')}. {' '.join(hints)}",
+                    fields=error.fields,
+                    response=error.response,
+                    links=error.links,
+                )
+            raise error from e
         except Exception as e:
             self._clear_audio_output()
             self._log(f"❌ Audio generation failed: {e}")
-            msg = f"{self.name}: Lyria audio generation failed. {e}"
-            raise RuntimeError(msg) from e
+            raise_node_error(e)
 
     @staticmethod
     def _read_audio_content(result: dict[str, Any]) -> str:
@@ -275,24 +289,16 @@ class LyriaAudioGenerator(ControlNode):
         """
         predictions = result.get("predictions")
         if not predictions:
-            msg = f"Lyria returned no predictions. Response keys: {sorted(result)}."
-            raise ValueError(msg)
+            msg = "Lyria returned no audio for this request. Change the prompt and run the node again."
+            raise NodeError(msg, response=result)
 
         prediction = predictions[0]
         if not isinstance(prediction, dict) or AUDIO_CONTENT_KEY not in prediction:
             found = sorted(prediction) if isinstance(prediction, dict) else type(prediction).__name__
-            msg = f"Lyria returned no '{AUDIO_CONTENT_KEY}' in its prediction. Found: {found}."
-            raise ValueError(msg)
+            msg = "Lyria returned no audio for this request. Change the prompt and run the node again."
+            raise NodeError(msg, response={"prediction_keys": found})
 
         return prediction[AUDIO_CONTENT_KEY]
-
-    @staticmethod
-    def _api_error_message(error: requests.exceptions.HTTPError) -> str:
-        """The message Google put in the error body, or the raw error if it carried none."""
-        try:
-            return error.response.json().get("error", {}).get("message", str(error))
-        except (ValueError, AttributeError):
-            return str(error)
 
     def process(self) -> AsyncResult[None]:
         self._model_access.raise_if_selection_denied()
@@ -300,15 +306,17 @@ class LyriaAudioGenerator(ControlNode):
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Reject a run that cannot possibly produce audio."""
+        if missing := missing_credential_errors():
+            return missing
         exceptions: list[Exception] = []
 
         if not self.get_parameter_value("prompt"):
-            exceptions.append(ValueError(f"{self.name}: a prompt is required."))
+            exceptions.append(parameter_error("'Prompt' is empty. Enter a prompt and run the node again.", "prompt"))
         model = self.get_parameter_value("model") or DEFAULT_MODEL
         if model in INTERACTION_MODELS and not GOOGLE_INSTALLED:
             exceptions.append(
                 ImportError(
-                    f"{self.name}: '{model}' needs 'google-genai', which is not installed. Add it "
+                    f"'{model}' needs 'google-genai', which is not installed. Add it "
                     "to this library's dependencies, or use lyria-002."
                 )
             )
@@ -336,7 +344,6 @@ class LyriaAudioGenerator(ControlNode):
             seed = self._seed_parameter.get_seed()
 
         credentials, final_project_id = credentials_or_raise(
-            self.name,
             log_func=self._log,
             on_failure=self._clear_audio_output,
         )
@@ -380,13 +387,19 @@ class LyriaAudioGenerator(ControlNode):
         except Exception as e:
             self._clear_audio_output()
             self._log(f"❌ Audio generation failed: {e}")
-            if "not found" in str(e).lower() or "404" in str(e):
-                self._log(
-                    f"💡 '{model}' is a preview model. Your Google Cloud project has to be "
+            error = node_error_from(e)
+            if error is not None and error.fields.get("status_code") == 404:
+                hint = (
+                    f"'{model}' is a preview model. Your Google Cloud project has to be "
                     "allowlisted for it; lyria-002 is generally available."
                 )
-            msg = f"{self.name}: Lyria audio generation failed. {e}"
-            raise RuntimeError(msg) from e
+                raise NodeError(
+                    f"{str(error).rstrip('.')}. {hint}",
+                    fields=error.fields,
+                    response=error.response,
+                    links=error.links,
+                ) from e
+            raise_node_error(e)
 
         try:
             audio_data = base64.b64decode(self._read_interaction_audio(interaction))
@@ -398,8 +411,7 @@ class LyriaAudioGenerator(ControlNode):
         except Exception as e:
             self._clear_audio_output()
             self._log(f"❌ Audio generation failed: {e}")
-            msg = f"{self.name}: Lyria audio generation failed. {e}"
-            raise RuntimeError(msg) from e
+            raise_node_error(e)
 
     @staticmethod
     def _read_interaction_audio(interaction: Any) -> str:
@@ -410,8 +422,8 @@ class LyriaAudioGenerator(ControlNode):
         """
         status = getattr(interaction, "status", None)
         if status != "completed":
-            msg = f"Lyria interaction ended with status '{status}' instead of completing."
-            raise ValueError(msg)
+            msg = f"Lyria ended with status '{status}' instead of completing. Run the node again."
+            raise NodeError(msg, fields={"status": str(status)})
 
         output_audio = getattr(interaction, "output_audio", None)
         if output_audio is not None and getattr(output_audio, "data", None):
@@ -422,5 +434,5 @@ class LyriaAudioGenerator(ControlNode):
                 if getattr(content, "type", None) == "audio" and getattr(content, "data", None):
                     return content.data
 
-        msg = "Lyria interaction completed but carried no audio content."
-        raise ValueError(msg)
+        msg = "Lyria finished but returned no audio. Change the prompt and run the node again."
+        raise NodeError(msg)

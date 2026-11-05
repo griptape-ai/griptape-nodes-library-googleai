@@ -35,6 +35,7 @@ try:
 except ImportError:
     GOOGLE_INSTALLED = False
 
+from googleai_errors import missing_credential_errors, parameter_error, raise_node_error
 from googleai_utils import credentials_or_raise
 
 if TYPE_CHECKING:
@@ -405,17 +406,19 @@ class VertexAIImageGenerator(ControlNode):
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Reject a run that cannot possibly produce an image."""
+        if missing := missing_credential_errors():
+            return missing
         exceptions: list[Exception] = []
 
         if not GOOGLE_INSTALLED:
             exceptions.append(
                 ImportError(
-                    f"{self.name}: the Google libraries are not installed. Add 'google-auth' and "
+                    "The Google libraries are not installed. Add 'google-auth' and "
                     "'google-genai' to this library's dependencies."
                 )
             )
         if not self.get_parameter_value("prompt"):
-            exceptions.append(ValueError(f"{self.name}: a prompt is required."))
+            exceptions.append(parameter_error("'Prompt' is empty. Enter a prompt and run the node again.", "prompt"))
 
         return exceptions or None
 
@@ -436,9 +439,7 @@ class VertexAIImageGenerator(ControlNode):
         person_generation = self.get_parameter_value("person_generation")
         enhance_prompt = self.get_parameter_value("enhance_prompt")
 
-        credentials, final_project_id = credentials_or_raise(
-            self.name, log_func=self._log, on_failure=self._clear_image_outputs
-        )
+        credentials, final_project_id = credentials_or_raise(log_func=self._log, on_failure=self._clear_image_outputs)
 
         try:
             self._log(f"Project ID: {final_project_id}")
@@ -467,5 +468,4 @@ class VertexAIImageGenerator(ControlNode):
         except Exception as e:
             self._clear_image_outputs()
             self._log(f"❌ Image generation failed: {e}")
-            msg = f"{self.name}: Imagen image generation failed. {e}"
-            raise RuntimeError(msg) from e
+            raise_node_error(e)

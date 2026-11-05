@@ -6,6 +6,16 @@ from collections.abc import Callable
 from pathlib import PurePath
 from typing import Any
 
+from googleai_errors import (
+    API_KEY_NAME,
+    has_vertex_credentials,
+    missing_api_key_error,
+    missing_credentials_error,
+    refused_credentials_error,
+)
+from griptape_nodes.exe_types.core_types import NodeError
+from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
+
 
 def with_extension(filename: str, extension: str) -> str:
     """`filename` with its extension replaced, keeping the base name the artist chose.
@@ -36,31 +46,40 @@ def with_extension(filename: str, extension: str) -> str:
 HIGH_RESOLUTIONS = frozenset({"1080p"})
 FULL_DURATION_SECONDS = 8
 
-# Appended to the error raised when authentication fails, so every node names the same four
-# settings in the same order that GoogleAuthHelper actually tries them.
-CREDENTIALS_HELP = (
-    "Set up Google Cloud credentials in the library settings: "
-    "GOOGLE_WORKLOAD_IDENTITY_CONFIG_PATH (recommended, path to a workload identity config), "
-    "or GOOGLE_SERVICE_ACCOUNT_FILE_PATH (path to a service account JSON), "
-    "or GOOGLE_APPLICATION_CREDENTIALS_JSON, "
-    "or GOOGLE_CLOUD_PROJECT_ID on a machine with application default credentials."
-)
+
+def api_key_or_raise(
+    log_func: Callable[[str], None] | None = None,
+    on_failure: Callable[[], None] | None = None,
+) -> str:
+    """The Google AI Studio API key, raising a NodeError that links to the setting when it is missing.
+
+    Args:
+        log_func: Node's log sink, used for the error line.
+        on_failure: Called before raising, for the node to clear its own outputs.
+    """
+    api_key = GriptapeNodes.SecretsManager().get_secret(API_KEY_NAME)
+    if api_key:
+        return api_key
+    if on_failure is not None:
+        on_failure()
+    error = missing_api_key_error()
+    if log_func is not None:
+        log_func(f"❌ {error}")
+    raise error
 
 
 def credentials_or_raise(
-    node_name: str,
     log_func: Callable[[str], None] | None = None,
     on_failure: Callable[[], None] | None = None,
     extra_help: str = "",
 ) -> tuple[Any, str]:
-    """Resolve Google Cloud credentials, raising an artist-readable error if they are missing.
+    """Resolve Google Cloud credentials, raising an artist-readable NodeError if they are missing.
 
     Only the credentials lookup is caught here. A node that wrapped its whole run in the same
     handler would report any later ValueError -- an empty model response, a rejected config -- as
     a credentials problem, which sends the artist to the wrong setting.
 
     Args:
-        node_name: Used to prefix the error, so the failing node is named.
         log_func: Node's log sink, threaded into the auth helper and used for the error line.
         on_failure: Called before raising, for the node to clear its own outputs. Nodes clear
             different parameters, so that stays with the node rather than moving in here.
@@ -70,21 +89,19 @@ def credentials_or_raise(
         The credentials object (None under application default credentials) and the project id.
 
     Raises:
-        RuntimeError: If no usable credentials are configured.
+        NodeError: If no usable credentials are configured, with links to the settings.
     """
-    # Imported here rather than at module scope: GriptapeNodes pulls in the engine, and this
-    # module is also imported by tooling that has no engine available.
-    from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
-
+    secrets = GriptapeNodes.SecretsManager()
     try:
-        return GoogleAuthHelper.get_credentials_and_project(GriptapeNodes.SecretsManager(), log_func=log_func)
+        return GoogleAuthHelper.get_credentials_and_project(secrets, log_func=log_func)
     except ValueError as e:
         if on_failure is not None:
             on_failure()
         if log_func is not None:
             log_func(f"❌ Configuration error: {e}")
-        msg = f"{node_name}: could not authenticate to Google Cloud. {e} {CREDENTIALS_HELP}{extra_help}"
-        raise RuntimeError(msg) from e
+        if not has_vertex_credentials():
+            raise missing_credentials_error() from e
+        raise refused_credentials_error(str(e), extra_help) from e
 
 
 def detect_image_mime_from_bytes(data: bytes) -> str | None:
@@ -332,7 +349,7 @@ def validate_and_maybe_shrink_image(
         Tuple of (bytes, mime_type) - possibly converted/compressed
 
     Raises:
-        ValueError: If MIME type is not allowed, or image is too large (strict mode or shrink failed)
+        NodeError: If MIME type is not allowed, or image is too large (strict mode or shrink failed)
     """
 
     def _log(msg: str):
@@ -341,11 +358,9 @@ def validate_and_maybe_shrink_image(
 
     # Validate MIME type
     if mime_type not in allowed_mimes:
-        error_msg = (
-            f"❌ Image '{image_name}' has unsupported MIME type: {mime_type}. Supported: {', '.join(allowed_mimes)}"
-        )
-        _log(error_msg)
-        raise ValueError(error_msg)
+        error_msg = f"Image '{image_name}' has unsupported MIME type {mime_type}. Use one of: {', '.join(sorted(allowed_mimes))}."
+        _log(f"❌ {error_msg}")
+        raise NodeError(error_msg)
 
     # Check size
     if len(image_bytes) > byte_limit:
@@ -353,9 +368,9 @@ def validate_and_maybe_shrink_image(
         limit_mb = byte_limit / (1024 * 1024)
 
         if not auto_image_resize:
-            error_msg = f"❌ Image '{image_name}' is {size_mb:.1f} MB, which exceeds the {limit_mb:.0f} MB limit. Resize the image or enable 'auto_image_resize' to allow auto-resizing."
-            _log(error_msg)
-            raise ValueError(error_msg)
+            error_msg = f"Image '{image_name}' is {size_mb:.1f} MB, which exceeds the {limit_mb:.0f} MB limit. Resize the image or turn on 'Auto Image Resize'."
+            _log(f"❌ {error_msg}")
+            raise NodeError(error_msg)
 
         _log(f"ℹ️ Image '{image_name}' is {size_mb:.1f} MB; attempting to downscale to ≤ {limit_mb:.0f} MB...")
         image_bytes, mime_type = shrink_image_to_limit(image_bytes, mime_type, byte_limit, log_func=log_func)
@@ -364,9 +379,9 @@ def validate_and_maybe_shrink_image(
             new_mb = len(image_bytes) / (1024 * 1024)
             _log(f"✅ Downscaled '{image_name}' to {new_mb:.2f} MB ({mime_type}).")
         else:
-            error_msg = f"❌ Image '{image_name}' remains too large after downscaling."
-            _log(error_msg)
-            raise ValueError(error_msg)
+            error_msg = f"Image '{image_name}' is still over the {limit_mb:.0f} MB limit after downscaling. Use a smaller image."
+            _log(f"❌ {error_msg}")
+            raise NodeError(error_msg)
 
     return image_bytes, mime_type
 
