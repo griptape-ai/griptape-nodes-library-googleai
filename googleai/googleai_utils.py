@@ -63,7 +63,7 @@ def api_key_or_raise(
     if on_failure is not None:
         on_failure()
     if log_func is not None:
-        log_func(f"❌ {API_KEY_NAME} is not set.")
+        log_func("❌ GOOGLE_API_KEY is not set.")
     raise missing_api_key_error()
 
 
