@@ -62,10 +62,9 @@ def api_key_or_raise(
         return api_key
     if on_failure is not None:
         on_failure()
-    error = missing_api_key_error()
     if log_func is not None:
-        log_func(f"❌ {error}")
-    raise error
+        log_func(f"❌ {API_KEY_NAME} is not set.")
+    raise missing_api_key_error()
 
 
 def credentials_or_raise(
