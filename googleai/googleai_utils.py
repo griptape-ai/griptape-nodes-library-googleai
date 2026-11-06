@@ -9,9 +9,8 @@ from typing import Any
 from googleai_errors import (
     API_KEY_NAME,
     API_KEY_URL,
+    credentials_error,
     has_vertex_credentials,
-    missing_credentials_error,
-    refused_credentials_error,
 )
 from griptape_nodes.exe_types.core_types import NodeError
 from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
@@ -98,9 +97,7 @@ def credentials_or_raise(
             on_failure()
         if log_func is not None:
             log_func(f"❌ Configuration error: {e}")
-        if not has_vertex_credentials():
-            raise missing_credentials_error() from e
-        raise refused_credentials_error(str(e), extra_help) from e
+        raise credentials_error(None if not has_vertex_credentials() else str(e), extra_help) from e
 
 
 def detect_image_mime_from_bytes(data: bytes) -> str | None:

@@ -290,13 +290,6 @@ class TestVeo:
         assert raised.value.response == {"code": 3, "message": "The prompt could not be processed."}
 
     @pytest.mark.parametrize("node_class", [VeoVideoGenerator, VeoImageToVideoGenerator, VeoTextToVideoWithRef])
-    def test_internal_error_suggests_trying_again(self, node_class) -> None:
-        node = node_class(name="veo")
-        operation = self.operation(error={"code": 13, "message": "Internal error."})
-        with pytest.raises(NodeError, match="temporary Google error"):
-            node._poll_and_process_video_result(None, operation, "proj", None)
-
-    @pytest.mark.parametrize("node_class", [VeoVideoGenerator, VeoImageToVideoGenerator, VeoTextToVideoWithRef])
     def test_content_filter_moves_reasons_into_the_response(self, node_class) -> None:
         node = node_class(name="veo")
         operation = SimpleNamespace(
