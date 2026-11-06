@@ -6,7 +6,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
@@ -24,6 +24,7 @@ try:
 except ImportError:
     GOOGLE_INSTALLED = False
 
+from googleai_errors import missing_credential_errors, parameter_error, raise_node_error
 from googleai_utils import credentials_or_raise
 from griptape_nodes.files.file import File
 
@@ -469,20 +470,20 @@ class BaseAnalyzeMedia(ControlNode):
 
         candidates = response.candidates or []
         if not candidates:
-            msg = "Gemini returned no candidates for this request."
-            raise ValueError(msg)
+            msg = "Gemini returned no response for this request. Change the media or the prompt and run the node again."
+            raise NodeError(msg)
 
         finish_reason = getattr(candidates[0], "finish_reason", None)
         if finish_reason is not None and "MAX_TOKENS" in str(finish_reason):
             msg = (
-                "Gemini stopped at the 'max_tokens' limit before producing any text. Raise "
-                "'max_tokens' on this node: these models spend part of that budget on reasoning "
+                "Gemini stopped at the 'Max Tokens' limit before producing any text. Raise "
+                "'Max Tokens' and run the node again. These models spend part of that budget on reasoning "
                 "that never appears in the output."
             )
-            raise ValueError(msg)
+            raise parameter_error(msg, "max_tokens")
 
-        msg = f"Gemini returned no text for this request (finish_reason: {finish_reason})."
-        raise ValueError(msg)
+        msg = "Gemini returned no text for this request. Change the media or the prompt and run the node again."
+        raise NodeError(msg, fields={"finish_reason": str(finish_reason)})
 
     @staticmethod
     def _generation_config(temperature: float, max_tokens: int) -> Any:
@@ -495,17 +496,23 @@ class BaseAnalyzeMedia(ControlNode):
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Reject a run that cannot possibly produce an analysis."""
+        if missing := missing_credential_errors():
+            return missing
         exceptions: list[Exception] = []
 
         if not GOOGLE_INSTALLED:
             exceptions.append(
                 ImportError(
-                    f"{self.name}: the Google libraries are not installed. Add 'google-auth', "
+                    "The Google libraries are not installed. Add 'google-auth', "
                     "'google-cloud-storage' and 'google-genai' to this library's dependencies."
                 )
             )
         if not self.get_parameter_value("media"):
-            exceptions.append(ValueError(f"{self.name}: at least one media item is required."))
+            exceptions.append(
+                parameter_error(
+                    "'Media' has no input. Connect at least one media item and run the node again.", "media"
+                )
+            )
 
         return exceptions or None
 
@@ -546,7 +553,6 @@ class BaseAnalyzeMedia(ControlNode):
         self._log(f"📁 Processing {len(media_artifacts)} media item(s)...")
 
         credentials, final_project_id = credentials_or_raise(
-            self.name,
             log_func=self._log,
             on_failure=self._set_safe_defaults,
             extra_help=" Also confirm the Vertex AI API is enabled for the project.",
@@ -589,8 +595,7 @@ class BaseAnalyzeMedia(ControlNode):
         except Exception as e:
             self._set_safe_defaults()
             self._log(f"❌ Media analysis failed: {e}")
-            msg = f"{self.name}: media analysis failed. {e}"
-            raise RuntimeError(msg) from e
+            raise_node_error(e)
 
     def _set_safe_defaults(self) -> None:
         """Clear the analysis outputs, keeping the logs that explain why.

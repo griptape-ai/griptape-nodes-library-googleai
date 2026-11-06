@@ -3,7 +3,7 @@ import time
 from typing import Any, ClassVar
 
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterMessage, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterMessage, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, ControlNode
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_components.seed_parameter import SeedParameter
@@ -24,6 +24,13 @@ try:
 except ImportError:
     GOOGLE_INSTALLED = False
 
+from googleai_errors import (
+    content_filtered_error,
+    missing_credential_errors,
+    operation_error,
+    parameter_error,
+    raise_node_error,
+)
 from googleai_utils import (
     FULL_DURATION_SECONDS,
     credentials_or_raise,
@@ -507,12 +514,11 @@ class VeoTextToVideoWithRef(ControlNode):
             self._log("✅ Video generation completed!")
 
             if hasattr(operation, "error") and operation.error:
-                msg = f"Veo reported an error: {operation.error}"
-                raise RuntimeError(msg)
+                raise operation_error(operation.error)
 
             if not operation.response:
-                msg = "Veo reported completion but returned no response."
-                raise RuntimeError(msg)
+                msg = "Veo finished but returned no response. Run the node again."
+                raise NodeError(msg)
 
             video_artifacts = []
             # Fix: videos are in operation.response, not operation.result
@@ -528,12 +534,13 @@ class VeoTextToVideoWithRef(ControlNode):
                     self._log(f"   Reason: {reason}")
                 self._log("💡 Tip: Try rephrasing your prompt to avoid violent, sexual, or harmful content.")
                 if not generated_videos:
-                    msg = f"Google's content policy filtered all {filtered_count} generated video(s)."
-                    raise RuntimeError(msg)
+                    raise content_filtered_error(
+                        filtered_count, list(getattr(operation.response, "rai_media_filtered_reasons", None) or [])
+                    )
 
             if not generated_videos:
-                msg = "Veo returned a response with no videos in it."
-                raise RuntimeError(msg)
+                msg = "Veo returned a response with no videos in it. Change the prompt and run the node again."
+                raise NodeError(msg)
 
             self._log(f"🎯 Generated {len(generated_videos)} video(s)")
 
@@ -585,36 +592,44 @@ class VeoTextToVideoWithRef(ControlNode):
 
                 self._log("\n🎉 SUCCESS! All videos processed.")
             else:
-                msg = "Veo returned videos but none of them could be saved."
-                raise RuntimeError(msg)
+                msg = "Veo returned videos but no video data could be retrieved. Run the node again."
+                raise NodeError(msg)
         except Exception as e:
             self._log(f"❌ An unexpected error occurred during polling: {e}")
-            raise
+            raise_node_error(e)
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Reject a run the model would refuse, before spending a request on it."""
+        if missing := missing_credential_errors():
+            return missing
         exceptions: list[Exception] = []
 
         if not GOOGLE_INSTALLED:
             exceptions.append(
                 ImportError(
-                    f"{self.name}: the Google libraries are not installed. Add 'google-auth', "
+                    "The Google libraries are not installed. Add 'google-auth', "
                     "'google-cloud-storage' and 'google-genai' to this library's dependencies."
                 )
             )
         if not self.get_parameter_value("prompt"):
-            exceptions.append(ValueError(f"{self.name}: a prompt is required."))
+            exceptions.append(parameter_error("'Prompt' is empty. Enter a prompt and run the node again.", "prompt"))
         if not self.get_parameter_value("reference_image_1"):
-            exceptions.append(ValueError(f"{self.name}: at least one reference image is required."))
+            exceptions.append(
+                parameter_error(
+                    "'Reference Image 1' has no input. Connect at least one reference image and run the node again.",
+                    "reference_image_1",
+                )
+            )
 
         # Reference images are only accepted on the full 8-second length, which also happens to
         # be the only length that produces 1080p.
         duration = self.get_parameter_value("duration")
         if duration != FULL_DURATION_SECONDS:
             exceptions.append(
-                ValueError(
-                    f"{self.name}: reference images require a {FULL_DURATION_SECONDS}-second video, "
-                    f"but duration is set to {duration}."
+                parameter_error(
+                    f"Reference images require a {FULL_DURATION_SECONDS}-second video, "
+                    f"but 'Duration' is set to {duration}. Set 'Duration' to {FULL_DURATION_SECONDS}.",
+                    "duration",
                 )
             )
 
@@ -641,9 +656,7 @@ class VeoTextToVideoWithRef(ControlNode):
         reference_image_3 = self.get_parameter_value("reference_image_3")
         reference_type = self.get_parameter_value("reference_type") or "asset"
 
-        credentials, final_project_id = credentials_or_raise(
-            self.name, log_func=self._log, on_failure=self._clear_video_outputs
-        )
+        credentials, final_project_id = credentials_or_raise(log_func=self._log, on_failure=self._clear_video_outputs)
 
         try:
             self._log(f"Project ID: {final_project_id}")
@@ -710,8 +723,8 @@ class VeoTextToVideoWithRef(ControlNode):
             if not reference_images:
                 # Individual images are allowed to drop out above, but this model cannot run
                 # without at least one, so losing all of them is a failure rather than a no-op.
-                msg = "None of the supplied reference images could be processed."
-                raise RuntimeError(msg)
+                msg = "None of the images connected to the reference inputs could be processed. Check the images and run the node again."
+                raise NodeError(msg)
 
             self._log(f"✅ Processed {len(reference_images)} reference image(s) with type '{ref_type}'")
 
@@ -757,5 +770,4 @@ class VeoTextToVideoWithRef(ControlNode):
         except Exception as e:
             self._clear_video_outputs()
             self._log(f"❌ Video generation failed: {e}")
-            msg = f"{self.name}: Veo video generation failed. {e}"
-            raise RuntimeError(msg) from e
+            raise_node_error(e)

@@ -41,6 +41,7 @@ try:
 except ImportError:
     GOOGLE_INSTALLED = False
 
+from googleai_errors import missing_credential_errors, parameter_error, raise_node_error
 from googleai_utils import (
     credentials_or_raise,
     detect_image_mime_from_bytes,
@@ -508,12 +509,14 @@ class GeminiImageGenerator(ControlNode):
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Reject a run that cannot possibly produce an image."""
+        if missing := missing_credential_errors():
+            return missing
         exceptions: list[Exception] = []
 
         if not GOOGLE_INSTALLED:
             exceptions.append(
                 ImportError(
-                    f"{self.name}: the Google libraries are not installed. Add 'google-auth' and "
+                    "The Google libraries are not installed. Add 'google-auth' and "
                     "'google-genai' to this library's dependencies."
                 )
             )
@@ -523,7 +526,12 @@ class GeminiImageGenerator(ControlNode):
             or self.get_parameter_value("input_files")
         )
         if not has_any_input:
-            exceptions.append(ValueError(f"{self.name}: provide at least a prompt, an image, or a file."))
+            exceptions.append(
+                parameter_error(
+                    "Nothing to generate from. Enter a 'Prompt' or connect an image to 'Input Images' or a file to 'Input Files', then run the node again.",
+                    "prompt",
+                )
+            )
 
         return exceptions or None
 
@@ -544,9 +552,7 @@ class GeminiImageGenerator(ControlNode):
         top_p = self.get_parameter_value("top_p")
         candidate_count = self.get_parameter_value("candidate_count")
 
-        credentials, project_id = credentials_or_raise(
-            self.name, log_func=self._log, on_failure=self._clear_image_outputs
-        )
+        credentials, project_id = credentials_or_raise(log_func=self._log, on_failure=self._clear_image_outputs)
 
         try:
             self._log(f"Project ID: {project_id}")
@@ -570,5 +576,4 @@ class GeminiImageGenerator(ControlNode):
         except Exception as e:
             self._clear_image_outputs()
             self._log(f"❌ Image generation failed: {e}")
-            msg = f"{self.name}: Gemini image generation failed. {e}"
-            raise RuntimeError(msg) from e
+            raise_node_error(e)

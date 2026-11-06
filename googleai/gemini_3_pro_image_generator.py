@@ -1,9 +1,16 @@
 import logging
 from typing import Any
 
+from googleai_errors import (
+    AI_STUDIO_API,
+    VERTEX_AI,
+    missing_credential_errors,
+    parameter_error,
+    raise_node_error,
+)
 from googleai_utils import (
-    CREDENTIALS_HELP,
-    GoogleAuthHelper,
+    api_key_or_raise,
+    credentials_or_raise,
     detect_image_mime_from_bytes,
     validate_and_maybe_shrink_image,
 )
@@ -14,7 +21,6 @@ from griptape_nodes.exe_types.param_components.project_file_parameter import Pro
 from griptape_nodes.exe_types.param_types.parameter_float import ParameterFloat
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 logger = logging.getLogger("griptape_nodes_library_googleai")
@@ -35,9 +41,6 @@ try:
     GOOGLE_INSTALLED = True
 except ImportError:
     GOOGLE_INSTALLED = False
-
-VERTEX_AI = "Vertex AI"
-AI_STUDIO_API = "AI Studio API"
 
 
 class NanoBananaProImageGenerator(ControlNode):
@@ -533,23 +536,26 @@ class NanoBananaProImageGenerator(ControlNode):
     # ---------- Node entrypoints ----------
     def validate_before_node_run(self) -> list[Exception] | None:
         """Reject a run that cannot possibly produce an image."""
+        if missing := missing_credential_errors(self.get_parameter_value("api_provider")):
+            return missing
         exceptions: list[Exception] = []
 
         if not GOOGLE_INSTALLED:
-            exceptions.append(
-                ImportError(f"{self.name}: 'google-genai' is not installed. Add it to this library's dependencies.")
-            )
+            exceptions.append(ImportError("'google-genai' is not installed. Add it to this library's dependencies."))
         if not PIL_INSTALLED:
-            exceptions.append(
-                ImportError(f"{self.name}: 'pillow' is not installed. Add it to this library's dependencies.")
-            )
+            exceptions.append(ImportError("'pillow' is not installed. Add it to this library's dependencies."))
         has_any_image = (
             self.get_parameter_value("reference_images")
             or self.get_parameter_value("object_images")
             or self.get_parameter_value("human_images")
         )
         if not self.get_parameter_value("prompt") and not has_any_image:
-            exceptions.append(ValueError(f"{self.name}: provide at least a prompt or a reference image."))
+            exceptions.append(
+                parameter_error(
+                    "Nothing to generate from. Enter a 'Prompt' or connect an image to 'Reference Images', then run the node again.",
+                    "prompt",
+                )
+            )
 
         return exceptions or None
 
@@ -594,41 +600,18 @@ class NanoBananaProImageGenerator(ControlNode):
         self._log(f"📡 Using API provider: {api_provider}")
         self._log(f"🤖 Model: {model}")
 
-        # Only the client construction counts as an auth failure; a ValueError raised later in the
-        # run is not a credentials problem and must not be reported as one.
-        try:
-            if api_provider == "AI Studio API":
-                # Use Google AI Studio API
-                api_key = GriptapeNodes.SecretsManager().get_secret(f"{self.API_KEY}")
-                if not api_key:
-                    raise ValueError(
-                        "❌ GOOGLE_API_KEY must be set in library settings to use AI Studio API. "
-                        "Get your API key from https://aistudio.google.com/apikey"
-                    )
-                self._log("🔑 Using Google AI Studio API key for authentication.")
-                client = genai.Client(api_key=api_key)
-            else:  # Vertex AI
-                # Use Vertex AI authentication
-                self._log("🔑 Using Vertex AI authentication.")
-
-                # Use GoogleAuthHelper for authentication
-                credentials, project_id = GoogleAuthHelper.get_credentials_and_project(
-                    GriptapeNodes.SecretsManager(), log_func=self._log
-                )
-
-                self._log(f"Project ID: {project_id}")
-
-                self._log("Initializing Generative AI Client (Vertex AI)...")
-                client = genai.Client(vertexai=True, project=project_id, location=location, credentials=credentials)
-
-        except ValueError as e:
-            self._clear_image_outputs()
-            self._log(f"❌ Configuration error: {e}")
-            msg = (
-                f"{self.name}: could not authenticate to Google. {e} For the AI Studio API set "
-                f"GOOGLE_API_KEY (from https://aistudio.google.com/apikey). For Vertex AI, {CREDENTIALS_HELP}"
-            )
-            raise RuntimeError(msg) from e
+        # Only the credential lookup counts as an auth failure; a later error in the run is not a
+        # credentials problem and must not be reported as one.
+        if api_provider == AI_STUDIO_API:
+            api_key = api_key_or_raise(log_func=self._log, on_failure=self._clear_image_outputs)
+            self._log("🔑 Using Google AI Studio API key for authentication.")
+            client = genai.Client(api_key=api_key)
+        else:
+            self._log("🔑 Using Vertex AI authentication.")
+            credentials, project_id = credentials_or_raise(log_func=self._log, on_failure=self._clear_image_outputs)
+            self._log(f"Project ID: {project_id}")
+            self._log("Initializing Generative AI Client (Vertex AI)...")
+            client = genai.Client(vertexai=True, project=project_id, location=location, credentials=credentials)
 
         try:
             self._log("🚀 Starting Gemini 3 Pro image generation...")
@@ -648,5 +631,4 @@ class NanoBananaProImageGenerator(ControlNode):
         except Exception as e:
             self._clear_image_outputs()
             self._log(f"❌ Image generation failed: {e}")
-            msg = f"{self.name}: Gemini image generation failed. {e}"
-            raise RuntimeError(msg) from e
+            raise_node_error(e, api_provider=api_provider)

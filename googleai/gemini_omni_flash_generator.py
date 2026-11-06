@@ -3,21 +3,27 @@ import logging
 import time
 from typing import Any
 
+from googleai_errors import (
+    AI_STUDIO_API,
+    VERTEX_AI,
+    missing_credential_errors,
+    parameter_error,
+    raise_node_error,
+)
 from googleai_utils import (
-    CREDENTIALS_HELP,
-    GoogleAuthHelper,
+    api_key_or_raise,
+    credentials_or_raise,
     detect_image_mime_from_bytes,
     validate_and_maybe_shrink_image,
 )
 from griptape.artifacts import ImageArtifact, ImageUrlArtifact, VideoUrlArtifact
-from griptape_nodes.exe_types.core_types import Parameter, ParameterGroup, ParameterList, ParameterMode
+from griptape_nodes.exe_types.core_types import NodeError, Parameter, ParameterGroup, ParameterList, ParameterMode
 from griptape_nodes.exe_types.node_types import AsyncResult, BaseNode, ControlNode
 from griptape_nodes.exe_types.param_components.model_access_component import ModelAccessComponent
 from griptape_nodes.exe_types.param_components.project_file_parameter import ProjectFileParameter
 from griptape_nodes.exe_types.param_types.parameter_image import ParameterImage
 from griptape_nodes.exe_types.param_types.parameter_string import ParameterString
 from griptape_nodes.files.file import File
-from griptape_nodes.retained_mode.griptape_nodes import GriptapeNodes
 from griptape_nodes.traits.options import Options
 
 # Attempt to import Google libraries
@@ -42,8 +48,6 @@ DEPRECATED_MODELS = {
     "gemini-omni-flash-preview": DEFAULT_MODEL,
 }
 
-VERTEX_AI = "Vertex AI"
-AI_STUDIO_API = "AI Studio API"
 
 # The Interactions API is only served from the `global` Vertex location; regional
 # endpoints (e.g. us-central1-aiplatform.googleapis.com) return 404 for it.
@@ -252,23 +256,20 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
         self.parameter_output_values["logs"] = ""
         self.parameter_output_values["video"] = None
 
+    def _clear_video_output(self) -> None:
+        """Clear the video output but keep the logs, which explain the failure."""
+        self.parameter_output_values["video"] = None
+
     def _build_client(self, api_provider: str):
         """Construct a genai Client for the selected auth provider."""
         if api_provider == AI_STUDIO_API:
-            api_key = GriptapeNodes.SecretsManager().get_secret(f"{self.API_KEY}")
-            if not api_key:
-                raise ValueError(
-                    "GOOGLE_API_KEY must be set in library settings to use the AI Studio API. "
-                    "Get your API key from https://aistudio.google.com/apikey"
-                )
+            api_key = api_key_or_raise(log_func=self._log, on_failure=self._clear_video_output)
             self._log("🔑 Using Google AI Studio API key for authentication.")
             return genai.Client(api_key=api_key)
 
         # Vertex AI — interactions is only served from the global location.
         self._log("🔑 Using Vertex AI authentication.")
-        credentials, project_id = GoogleAuthHelper.get_credentials_and_project(
-            GriptapeNodes.SecretsManager(), log_func=self._log
-        )
+        credentials, project_id = credentials_or_raise(log_func=self._log, on_failure=self._clear_video_output)
         self._log(f"Project ID: {project_id}")
         return genai.Client(vertexai=True, project=project_id, location=VERTEX_LOCATION, credentials=credentials)
 
@@ -297,17 +298,19 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
 
     def validate_before_node_run(self) -> list[Exception] | None:
         """Reject a run that cannot possibly produce a video."""
+        if missing := missing_credential_errors(self.get_parameter_value("api_provider") or VERTEX_AI):
+            return missing
         exceptions: list[Exception] = []
 
         if not GOOGLE_INSTALLED:
             exceptions.append(
                 ImportError(
-                    f"{self.name}: the Google libraries are not installed. Add 'google-auth' and "
+                    "The Google libraries are not installed. Add 'google-auth' and "
                     "'google-genai' to this library's dependencies."
                 )
             )
         if not self.get_parameter_value("prompt"):
-            exceptions.append(ValueError(f"{self.name}: a prompt is required."))
+            exceptions.append(parameter_error("'Prompt' is empty. Enter a prompt and run the node again.", "prompt"))
 
         return exceptions or None
 
@@ -322,16 +325,10 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
         image = self.get_parameter_value("image")
         reference_images = self.get_parameter_list_value("reference_images")
 
-        # Only client construction counts as an auth failure. `_image_to_base64` below raises
-        # ValueError for an unsupported MIME type or an image that will not fit under the size
-        # cap, and neither is a credentials problem.
-        try:
-            client = self._build_client(api_provider)
-        except ValueError as e:
-            self.parameter_output_values["video"] = None
-            self._log(f"❌ Configuration error: {e}")
-            msg = f"{self.name}: could not authenticate to Google. {e} {CREDENTIALS_HELP}"
-            raise RuntimeError(msg) from e
+        # Only the credential lookup counts as an auth failure. `_image_to_base64` below rejects an
+        # unsupported MIME type or an image that will not fit under the size cap, and neither is a
+        # credentials problem.
+        client = self._build_client(api_provider)
 
         try:
             # Build the interactions `input`: a plain prompt for text-to-video, or a list of
@@ -371,15 +368,14 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
             )
 
             self._log(f"⏳ Interaction started (id: {interaction.id}). Waiting for completion...")
-            yield lambda: self._poll_and_process(client, interaction.id)
+            yield lambda: self._poll_and_process(client, interaction.id, api_provider)
 
         except Exception as e:
             self.parameter_output_values["video"] = None
             self._log(f"❌ Video generation failed: {e}")
-            msg = f"{self.name}: Gemini Omni video generation failed. {e}"
-            raise RuntimeError(msg) from e
+            raise_node_error(e, api_provider=api_provider)
 
-    def _poll_and_process(self, client, interaction_id: str) -> None:
+    def _poll_and_process(self, client, interaction_id: str, api_provider: str | None = None) -> None:
         """Poll the background interaction until terminal, then save the video."""
         try:
             interaction = client.interactions.get(interaction_id)
@@ -389,18 +385,18 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
                 self._log(f"⏳ Still generating... (status: {interaction.status})")
 
             if interaction.status != "completed":
-                msg = f"Gemini Omni ended with status '{interaction.status}' and produced no video."
-                raise RuntimeError(msg)
+                msg = f"Gemini Omni ended with status '{interaction.status}' and produced no video. Run the node again."
+                raise NodeError(msg, fields={"status": str(interaction.status)})
 
             video_content = self._find_video_content(interaction)
             if video_content is None:
-                msg = "Gemini Omni reported completion but returned no video."
-                raise RuntimeError(msg)
+                msg = "Gemini Omni finished but returned no video. Change the prompt and run the node again."
+                raise NodeError(msg)
 
             video_bytes = self._video_content_to_bytes(client, video_content)
             if not video_bytes:
-                msg = "Gemini Omni returned a video reference whose data could not be retrieved."
-                raise RuntimeError(msg)
+                msg = "Gemini Omni returned a video whose data could not be retrieved. Run the node again."
+                raise NodeError(msg)
 
             saved = self._output_file.build_file().write_bytes(video_bytes)
             url_artifact = VideoUrlArtifact(value=saved.location, name=saved.location)
@@ -410,8 +406,7 @@ class GeminiOmniFlashVideoGenerator(ControlNode):
         except Exception as e:
             self.parameter_output_values["video"] = None
             self._log(f"❌ Failed while waiting for the video: {e}")
-            msg = f"{self.name}: Gemini Omni video generation failed while polling. {e}"
-            raise RuntimeError(msg) from e
+            raise_node_error(e, api_provider=api_provider)
 
     @staticmethod
     def _find_video_content(interaction) -> Any:

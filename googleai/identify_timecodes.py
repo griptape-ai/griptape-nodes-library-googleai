@@ -2,6 +2,7 @@ import json
 import re
 
 from base_analyze_media import BaseAnalyzeMedia
+from griptape_nodes.exe_types.core_types import NodeError
 
 
 class IdentifyTimecodes(BaseAnalyzeMedia):
@@ -159,10 +160,10 @@ Guidelines:
             parsed_json = json.loads(cleaned_response)
         except json.JSONDecodeError as e:
             msg = (
-                f"Gemini did not return valid JSON for the timecode request ({e}). "
-                f"Response began: {cleaned_response[:200]!r}"
+                "Gemini did not return valid JSON for the timecode request. If the answer was cut off, "
+                "raise 'Max Tokens'. Then run the node again."
             )
-            raise ValueError(msg) from e
+            raise NodeError(msg, response={"text": cleaned_response[:2000]}) from e
 
         if "chapters" in parsed_json and "time_format" in parsed_json:
             self._log("✅ Successfully extracted timecode data (single video)")
